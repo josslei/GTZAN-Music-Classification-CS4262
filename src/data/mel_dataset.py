@@ -9,6 +9,8 @@ based on a fixed test set (fold 0) and 5-fold cross-validation (folds 1-5).
 from __future__ import annotations
 
 import csv
+
+from src.data.augment import MelAugment
 import math
 from pathlib import Path
 from typing import Callable, Dict, List, Optional, Tuple, Union
@@ -167,9 +169,10 @@ def get_dataloaders(
     genres = sorted(list(unique_genres))
     class_mapping = {genre: idx for idx, genre in enumerate(genres)}
 
-    # Initialize datasets
+    # Initialize datasets (augmentation applied to training set only)
     train_dataset = MelSpectrogramDataset(
-        train_data, mel_dir, class_mapping, max_frames=max_frames
+        train_data, mel_dir, class_mapping, max_frames=max_frames,
+        transform=MelAugment(),
     )
     val_dataset = MelSpectrogramDataset(
         val_data, mel_dir, class_mapping, max_frames=max_frames
