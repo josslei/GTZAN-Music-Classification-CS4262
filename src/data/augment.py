@@ -178,15 +178,15 @@ class RandomErasing:
 
 
 class MelAugment:
-    """Composes all per-sample augmentations into a single callable.
+    """Composes proven per-sample augmentations into a single callable.
 
     Applied in this order:
-        1. SpecAugment (frequency + time masking)
+        1. SpecAugment (frequency + time masking) — 1 mask each
         2. Random Gain
-        3. Gaussian Noise
-        4. Time Shift
-        5. Pitch Shift
-        6. Random Erasing
+
+    Note: GaussianNoise, TimeShift, PitchShift, and RandomErasing are
+    available as individual classes above but excluded from the default
+    pipeline to avoid underfitting on small datasets.
     """
 
     def __init__(
@@ -194,20 +194,11 @@ class MelAugment:
         # SpecAugment
         freq_mask_param: int = 15,
         time_mask_param: int = 25,
-        num_freq_masks: int = 2,
-        num_time_masks: int = 2,
+        num_freq_masks: int = 1,
+        num_time_masks: int = 1,
         # Random Gain
         min_gain: float = 0.8,
         max_gain: float = 1.2,
-        # Gaussian Noise
-        noise_std: float = 0.01,
-        # Time Shift
-        max_shift_fraction: float = 0.1,
-        # Pitch Shift
-        max_pitch_shift: int = 4,
-        # Random Erasing
-        erase_max_freq: int = 15,
-        erase_max_time: int = 25,
     ) -> None:
         self.spec_augment = SpecAugment(
             freq_mask_param=freq_mask_param,
@@ -216,15 +207,9 @@ class MelAugment:
             num_time_masks=num_time_masks,
         )
         self.random_gain = RandomGain(min_gain=min_gain, max_gain=max_gain)
-        self.gaussian_noise = GaussianNoise(std=noise_std)
-        self.time_shift = TimeShift(max_shift_fraction=max_shift_fraction)
-        self.pitch_shift = PitchShift(max_shift=max_pitch_shift)
-        self.random_erasing = RandomErasing(
-            max_freq=erase_max_freq, max_time=erase_max_time
-        )
 
     def __call__(self, mel: torch.Tensor) -> torch.Tensor:
-        """Applies all per-sample augmentations sequentially.
+        """Applies SpecAugment then RandomGain.
 
         Args:
             mel: Tensor of shape (1, n_mels, time_frames).
@@ -234,10 +219,6 @@ class MelAugment:
         """
         mel = self.spec_augment(mel)
         mel = self.random_gain(mel)
-        mel = self.gaussian_noise(mel)
-        mel = self.time_shift(mel)
-        mel = self.pitch_shift(mel)
-        mel = self.random_erasing(mel)
         return mel
 
 

@@ -13,12 +13,13 @@ class CRNNModel(nn.Module):
     CRNN architecture for music genre classification.
     
     Structure:
-    - CNN: 
-        - Conv(64, 3x3) -> BN -> ELU -> MaxPool(2x1)
-        - Conv(128, 3x3) -> BN -> ELU -> MaxPool(4x1)
-    - Reshape: (Batch, Channels, Height, Width) -> (Batch, Width, Height * Channels)
-    - RNN: 
-        - Bidirectional LSTM(64, return_sequences=False) -> Dropout(0.3)
+    - CNN Part:
+        - Conv(64, 3x3) -> BN -> ELU -> MaxPool(2, 1)
+        - Conv(128, 3x3) -> BN -> ELU -> MaxPool(4, 1)
+    - Reshape:
+        - (Batch, 128, 16, Width) -> (Batch, Width, 128 * 16)
+    - RNN Part:
+        - Bidirectional LSTM(64, return_sequences=False, dropout=0.3)
     - Classifier:
         - Dense(10)
     """
@@ -49,17 +50,20 @@ class CRNNModel(nn.Module):
 
         # Calculate height after CNN: 128 // 2 // 4 = 16
         cnn_out_height = input_height // 2 // 4
-        rnn_input_size = 128 * cnn_out_height # Channels * Height
+        rnn_input_size = 128 * cnn_out_height # 128 channels * 16 height bins = 2048
 
         # 2. RNN Part
+        # Note: dropout in LSTM is only applied between layers, 
+        # but for num_layers=1 we handle it manually or just define it.
+        # PyTorch ignores dropout if num_layers=1.
         self.lstm = nn.LSTM(
             input_size=rnn_input_size,
             hidden_size=64,
             num_layers=1,
             batch_first=True,
-            bidirectional=True,
-            dropout=0.3
+            bidirectional=True
         )
+        self.dropout = nn.Dropout(0.3)
 
         # 3. Classifier
         # Bidirectional hidden_size=64 -> 128
@@ -78,19 +82,20 @@ class CRNNModel(nn.Module):
         x = self.features(x)
 
         # Reshape for LSTM: (batch, C, H, W) -> (batch, W, H * C)
-        # Note: W is the temporal dimension (seq_len)
         batch_size, channels, height, width = x.shape
         x = x.permute(0, 3, 2, 1).contiguous() # (batch, width, height, channels)
         x = x.view(batch_size, width, height * channels)
 
         # RNN Part
-        # out shape: (batch, width, 128)
-        x, (h_n, _) = self.lstm(x)
+        # x shape: (batch, width, 128)
+        _, (h_n, _) = self.lstm(x)
         
-        # We want return_sequences=False, so take the last state
-        # For bidirectional LSTM, h_n contains [h_forward, h_backward]
-        # Concat the last states of both directions
+        # Concatenate final hidden states of forward and backward directions
+        # h_n shape: (num_layers * num_directions, batch, hidden_size)
         x = torch.cat((h_n[-2, :, :], h_n[-1, :, :]), dim=1) # (batch, 128)
+        
+        # Apply dropout (as requested)
+        x = self.dropout(x)
 
         # Classifier
         x = self.classifier(x)

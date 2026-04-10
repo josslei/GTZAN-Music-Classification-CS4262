@@ -64,6 +64,10 @@ def load_config(paths: list[str]) -> Dict[str, Any]:
 
 def main(args: argparse.Namespace) -> None:
     """Main execution flow for running K-fold training."""
+    # Set float32 matmul precision for performance on Tensor Cores
+    import torch
+    torch.set_float32_matmul_precision("medium")
+
     # 1. Load base configurations
     base_configs = ["configs/data.yaml", "configs/train.yaml"]
 

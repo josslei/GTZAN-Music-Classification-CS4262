@@ -64,7 +64,9 @@ class GenreClassifierModule(LightningModule):
         if self.mixup_alpha > 0.0:
             x_mixed, y_a, y_b, lam = mixup_batch(x, y, alpha=self.mixup_alpha)
             logits = self(x_mixed)
-            loss = lam * self.criterion(logits, y_a) + (1.0 - lam) * self.criterion(logits, y_b)
+            loss = lam * self.criterion(logits, y_a) + (1.0 - lam) * self.criterion(
+                logits, y_b
+            )
         else:
             logits = self(x)
             loss = self.criterion(logits, y)
@@ -109,13 +111,22 @@ class GenreClassifierModule(LightningModule):
         self.log("test_loss", loss, on_epoch=True)
         self.log("test_acc", acc, on_epoch=True)
 
+    def on_train_epoch_end(self) -> None:
+        """Logs the current learning rate at the end of each training epoch."""
+        sch = self.lr_schedulers()
+        if sch is not None:
+            # For ReduceLROnPlateau, the LR is in optimizer.param_groups
+            opt = self.optimizers()
+            lr = opt.param_groups[0]["lr"]
+            self.log("lr", lr, on_step=False, on_epoch=True, prog_bar=False)
+
     def configure_optimizers(self) -> Any:
         """Sets up the AdamW optimizer and ReduceLROnPlateau scheduler."""
         optimizer = optim.AdamW(
             self.parameters(), lr=self.lr, weight_decay=self.weight_decay
         )
 
-        scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.1, patience=5)
+        scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=10)
 
         return {
             "optimizer": optimizer,

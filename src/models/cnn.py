@@ -11,7 +11,7 @@ import torch.nn as nn
 class CNN2D(nn.Module):
     """
     CNN2D architecture for music genre classification.
-    
+
     Structure:
     - Block 1: Conv(3x3, 32) -> BN -> ReLU -> MaxPool(2x2)
     - Block 2: Conv(3x3, 64) -> BN -> ReLU -> MaxPool(2x2)
@@ -30,35 +30,26 @@ class CNN2D(nn.Module):
             num_classes: Number of target genres.
         """
         super().__init__()
-        
+
         self.features = nn.Sequential(
             # Block 1
-            nn.Conv2d(1, 32, kernel_size=3, padding=1),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-
-            # Block 2
-            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.Conv2d(1, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
-
-            # Block 3
-            nn.Conv2d(64, 256, kernel_size=3, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=2, stride=2),
-
-            # Block 4
-            nn.Conv2d(256, 128, kernel_size=3, padding=1),
+            # Block 2
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
-
-            # Block 5
+            # Block 3
             nn.Conv2d(128, 256, kernel_size=3, padding=1),
             nn.BatchNorm2d(256),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # Block 4
+            nn.Conv2d(256, 512, kernel_size=3, padding=1),
+            nn.BatchNorm2d(512),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2),
         )
@@ -66,10 +57,10 @@ class CNN2D(nn.Module):
         self.global_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         self.classifier = nn.Sequential(
-            nn.Linear(256, 256),
+            nn.Linear(512, 512),
             nn.ReLU(),
-            nn.Dropout(0.5),
-            nn.Linear(256, num_classes)
+            nn.Dropout(0.3),
+            nn.Linear(512, num_classes),
             # Note: Softmax is typically handled by nn.CrossEntropyLoss
         )
 

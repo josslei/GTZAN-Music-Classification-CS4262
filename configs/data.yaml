@@ -1,7 +1,7 @@
 # Data Configuration
 metadata_path: "dataset/mel/metadata.csv"
 mel_dir: "dataset/mel"
-batch_size: 64
+batch_size: 128
 num_workers: 4
 
 # Audio Processing Parameters
