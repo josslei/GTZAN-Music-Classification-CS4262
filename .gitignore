@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual Environment
+venv/
+.venv/
+ENV/
+
+# IDEs
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project-specific: Datasets and Zip files
+dataset/
+*.zip
+*.csv
+
+# Project-specific: ML Model Weights & Logs
+*.pth
+*.h5
+*.ckpt
+*.t7
+runs/
+logs/
+checkpoints/
+
+# Metadata
+.ipynb_checkpoints
