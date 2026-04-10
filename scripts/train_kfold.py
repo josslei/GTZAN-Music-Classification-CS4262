@@ -24,17 +24,19 @@ import torch.nn as nn
 import yaml
 from src.data.mel_dataset import get_dataloaders
 from src.models.cnn import CNN2D
-
-# Import other models here
-# from src.models.rnn import RNNModel
+from src.models.rnn import SimpleRNNModel, LSTMModel
+from src.models.crnn import CRNNModel
 
 from src.training.train_manager import train_one_fold
 
 # Mapping of model names to their classes
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "cnn2d": CNN2D,
-    # "rnn": RNNModel,
+    "rnn_simple": SimpleRNNModel,
+    "lstm": LSTMModel,
+    "crnn": CRNNModel,
 }
+
 
 
 def load_config(paths: list[str]) -> Dict[str, Any]:

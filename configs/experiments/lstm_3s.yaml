@@ -1,0 +1,11 @@
+# Experiment: LSTM 3-second segments
+model: "lstm"
+segment_seconds: 3.0
+
+# Overrides for training configuration
+training:
+  experiment_name: "lstm_3s"
+  max_epochs: 50
+  lr: 0.001
+  weight_decay: 0.01
+  patience: 10
