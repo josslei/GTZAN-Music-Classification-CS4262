@@ -1,0 +1,12 @@
+# Data Configuration
+metadata_path: "dataset/mel/metadata.csv"
+mel_dir: "dataset/mel"
+batch_size: 64
+num_workers: 4
+
+# Audio Processing Parameters
+sample_rate: 22050
+hop_length: 512
+
+# Slicing Configuration
+segment_seconds: 3.0 # Duration of each training segment in seconds

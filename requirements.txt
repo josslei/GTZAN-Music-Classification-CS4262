@@ -1,0 +1,13 @@
+librosa
+numpy
+pytorch-lightning
+scikit-learn
+torch
+torchvision
+torchaudio
+pyyaml
+rich
+tensorboard
+matplotlib
+# scipy (indirectly via librosa)
+# pandas (if needed for CSV handling, though you're using csv module)
