@@ -79,6 +79,18 @@ def main(args: argparse.Namespace) -> None:
     # Merge base and experiment configs
     config = load_config(base_configs + [exp_config_path])
 
+    # Determine model from config (now using model_arch if present, else model)
+    # We rename it in experiment configs to model_arch to avoid overwriting the dict
+    model_name = config.get("model_arch") or config.get("model")
+    if isinstance(model_name, dict):
+        # Fallback if model was still a dict
+        print("Error: Model name not found. Ensure 'model_arch' is set in experiment config.")
+        return
+    
+    if not model_name or model_name not in MODEL_REGISTRY:
+        print(f"Error: Model architecture '{model_name}' not in registry.")
+        return
+
     # 3. Apply CLI overrides to config
     if args.epochs:
         config["training"]["max_epochs"] = int(args.epochs)
@@ -99,12 +111,6 @@ def main(args: argparse.Namespace) -> None:
             config["training"]["max_epochs"] = int(config["training"]["max_epochs"])
     if "batch_size" in config:
         config["batch_size"] = int(config["batch_size"])
-
-    # Determine model from config
-    model_name = config.get("model")
-    if not model_name or model_name not in MODEL_REGISTRY:
-        print(f"Error: Model '{model_name}' not specified or not in registry.")
-        return
 
     # 4. Determine which folds to run
     folds_to_run = [args.fold] if args.fold else range(1, 6)
@@ -164,7 +170,7 @@ def main(args: argparse.Namespace) -> None:
             all_fold_metrics
         )
         summary_results["avg_val_acc"] = avg_val_acc
-
+        
         test_accs = [
             m["test_acc"] for m in all_fold_metrics.values() if "test_acc" in m
         ]

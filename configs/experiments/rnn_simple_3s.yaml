@@ -1,11 +1,11 @@
 # Experiment: Simple RNN 3-second segments
-model: "rnn_simple"
+model_arch: "rnn_simple"
 segment_seconds: 3.0
 
 # Overrides for training configuration
 training:
   experiment_name: "rnn_simple_3s"
-  max_epochs: 50
+  max_epochs: 100
   lr: 0.001
   weight_decay: 0.01
   patience: 10

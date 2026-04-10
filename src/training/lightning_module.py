@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional, Tuple
 
 import torch
+from src.data.augment import mixup_batch
 import torch.nn as nn
 import torch.optim as optim
 from pytorch_lightning import LightningModule
@@ -31,6 +32,7 @@ class GenreClassifierModule(LightningModule):
         model: nn.Module,
         lr: float = 1e-3,
         weight_decay: float = 1e-2,
+        mixup_alpha: float = 0.2,
     ) -> None:
         """Initializes the GenreClassifierModule.
 
@@ -38,12 +40,14 @@ class GenreClassifierModule(LightningModule):
             model: PyTorch model for classification.
             lr: Initial learning rate.
             weight_decay: L2 regularization coefficient.
+            mixup_alpha: Beta distribution parameter for Mixup (0 = disabled).
         """
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
         self.model = model
         self.lr = lr
         self.weight_decay = weight_decay
+        self.mixup_alpha = mixup_alpha
         self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -53,12 +57,19 @@ class GenreClassifierModule(LightningModule):
     def training_step(
         self, batch: Tuple[torch.Tensor, torch.Tensor], batch_idx: int
     ) -> torch.Tensor:
-        """Handles a single training step."""
+        """Handles a single training step with Mixup augmentation."""
         x, y = batch
-        logits = self(x)
-        loss = self.criterion(logits, y)
 
-        # Calculate accuracy
+        # Apply Mixup: blend pairs of samples and compute blended loss
+        if self.mixup_alpha > 0.0:
+            x_mixed, y_a, y_b, lam = mixup_batch(x, y, alpha=self.mixup_alpha)
+            logits = self(x_mixed)
+            loss = lam * self.criterion(logits, y_a) + (1.0 - lam) * self.criterion(logits, y_b)
+        else:
+            logits = self(x)
+            loss = self.criterion(logits, y)
+
+        # Accuracy is computed against original (unmixed) labels for readability
         preds = torch.argmax(logits, dim=1)
         acc = (preds == y).float().mean()
 

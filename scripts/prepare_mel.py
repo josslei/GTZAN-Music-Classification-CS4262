@@ -54,7 +54,7 @@ N_FFT: Final[int] = 2048  # FFT window size
 HOP_LENGTH: Final[int] = 512  # Hop length between frames
 N_MELS: Final[int] = 128  # Number of mel filter-bank bands
 F_MIN: Final[float] = 0.0  # Minimum frequency for mel filter-bank
-F_MAX: Final[float | None] = None  # Maximum frequency (None → SR / 2)
+F_MAX: Final[float | None] = 8000.0  # Maximum frequency (None → SR / 2)
 POWER: Final[float] = 2.0  # Exponent for magnitude spectrogram (2.0 = power)
 TOP_DB: Final[float] = 80.0  # Threshold for log-scaling (dB below peak)
 

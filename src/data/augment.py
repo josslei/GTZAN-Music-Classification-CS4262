@@ -1,13 +1,24 @@
 """
 augment.py — Mel-spectrogram data augmentations for training.
 
-Provides SpecAugment (frequency + time masking) and random gain perturbation.
-These augmentations are applied only to training data, never to val/test.
+Provides per-sample augmentations (SpecAugment, RandomGain, GaussianNoise,
+TimeShift, PitchShift, RandomErasing) and a batch-level Mixup function.
+
+Per-sample augmentations are composed in MelAugment and passed as `transform`
+to the training Dataset.  Mixup is called inside the LightningModule's
+training_step because it operates on full batches.
 """
 
 from __future__ import annotations
 
+from typing import Tuple
+
 import torch
+
+
+# ============================================================================
+# Per-sample augmentations (plugged in via Dataset.transform)
+# ============================================================================
 
 
 class SpecAugment:
@@ -79,32 +90,124 @@ class RandomGain:
         self.max_gain = max_gain
 
     def __call__(self, mel: torch.Tensor) -> torch.Tensor:
-        """Applies random gain to a mel-spectrogram tensor.
-
-        Args:
-            mel: Tensor of shape (1, n_mels, time_frames).
-
-        Returns:
-            Scaled tensor with the same shape.
-        """
         gain = torch.empty(1).uniform_(self.min_gain, self.max_gain).item()
         return mel * gain
 
 
-class MelAugment:
-    """Composes SpecAugment and RandomGain into a single callable.
+class GaussianNoise:
+    """Adds random Gaussian noise to a mel-spectrogram.
 
-    This is the recommended default augmentation pipeline for training.
+    Attributes:
+        std: Standard deviation of the noise.
+    """
+
+    def __init__(self, std: float = 0.01) -> None:
+        self.std = std
+
+    def __call__(self, mel: torch.Tensor) -> torch.Tensor:
+        noise = torch.randn_like(mel) * self.std
+        return mel + noise
+
+
+class TimeShift:
+    """Cyclically shifts the mel-spectrogram along the time axis.
+
+    Attributes:
+        max_shift_fraction: Maximum fraction of total frames to shift.
+    """
+
+    def __init__(self, max_shift_fraction: float = 0.1) -> None:
+        self.max_shift_fraction = max_shift_fraction
+
+    def __call__(self, mel: torch.Tensor) -> torch.Tensor:
+        _, _, n_frames = mel.shape
+        max_shift = int(n_frames * self.max_shift_fraction)
+        if max_shift == 0:
+            return mel
+        shift = torch.randint(-max_shift, max_shift + 1, (1,)).item()
+        return torch.roll(mel, shifts=shift, dims=2)
+
+
+class PitchShift:
+    """Cyclically shifts the mel-spectrogram along the frequency axis.
+
+    Simulates small pitch variations.
+
+    Attributes:
+        max_shift: Maximum number of mel bins to shift up or down.
+    """
+
+    def __init__(self, max_shift: int = 4) -> None:
+        self.max_shift = max_shift
+
+    def __call__(self, mel: torch.Tensor) -> torch.Tensor:
+        shift = torch.randint(-self.max_shift, self.max_shift + 1, (1,)).item()
+        return torch.roll(mel, shifts=shift, dims=1)
+
+
+class RandomErasing:
+    """Replaces a random rectangular patch with random values.
+
+    Unlike SpecAugment (which zeroes out), this fills with random noise,
+    preventing the model from using zero-regions as a signal.
+
+    Attributes:
+        max_freq: Maximum height of the erased patch (mel bins).
+        max_time: Maximum width of the erased patch (frames).
+    """
+
+    def __init__(self, max_freq: int = 15, max_time: int = 25) -> None:
+        self.max_freq = max_freq
+        self.max_time = max_time
+
+    def __call__(self, mel: torch.Tensor) -> torch.Tensor:
+        _, n_mels, n_frames = mel.shape
+        f = torch.randint(1, self.max_freq + 1, (1,)).item()
+        t = torch.randint(1, self.max_time + 1, (1,)).item()
+        if n_mels - f <= 0 or n_frames - t <= 0:
+            return mel
+        f0 = torch.randint(0, n_mels - f, (1,)).item()
+        t0 = torch.randint(0, n_frames - t, (1,)).item()
+        mel[:, f0 : f0 + f, t0 : t0 + t] = torch.randn(1, f, t)
+        return mel
+
+
+# ============================================================================
+# Composed per-sample pipeline
+# ============================================================================
+
+
+class MelAugment:
+    """Composes all per-sample augmentations into a single callable.
+
+    Applied in this order:
+        1. SpecAugment (frequency + time masking)
+        2. Random Gain
+        3. Gaussian Noise
+        4. Time Shift
+        5. Pitch Shift
+        6. Random Erasing
     """
 
     def __init__(
         self,
+        # SpecAugment
         freq_mask_param: int = 15,
         time_mask_param: int = 25,
         num_freq_masks: int = 2,
         num_time_masks: int = 2,
+        # Random Gain
         min_gain: float = 0.8,
         max_gain: float = 1.2,
+        # Gaussian Noise
+        noise_std: float = 0.01,
+        # Time Shift
+        max_shift_fraction: float = 0.1,
+        # Pitch Shift
+        max_pitch_shift: int = 4,
+        # Random Erasing
+        erase_max_freq: int = 15,
+        erase_max_time: int = 25,
     ) -> None:
         self.spec_augment = SpecAugment(
             freq_mask_param=freq_mask_param,
@@ -113,9 +216,15 @@ class MelAugment:
             num_time_masks=num_time_masks,
         )
         self.random_gain = RandomGain(min_gain=min_gain, max_gain=max_gain)
+        self.gaussian_noise = GaussianNoise(std=noise_std)
+        self.time_shift = TimeShift(max_shift_fraction=max_shift_fraction)
+        self.pitch_shift = PitchShift(max_shift=max_pitch_shift)
+        self.random_erasing = RandomErasing(
+            max_freq=erase_max_freq, max_time=erase_max_time
+        )
 
     def __call__(self, mel: torch.Tensor) -> torch.Tensor:
-        """Applies SpecAugment then RandomGain.
+        """Applies all per-sample augmentations sequentially.
 
         Args:
             mel: Tensor of shape (1, n_mels, time_frames).
@@ -125,4 +234,46 @@ class MelAugment:
         """
         mel = self.spec_augment(mel)
         mel = self.random_gain(mel)
+        mel = self.gaussian_noise(mel)
+        mel = self.time_shift(mel)
+        mel = self.pitch_shift(mel)
+        mel = self.random_erasing(mel)
         return mel
+
+
+# ============================================================================
+# Batch-level augmentation (called inside training_step)
+# ============================================================================
+
+
+def mixup_batch(
+    x: torch.Tensor,
+    y: torch.Tensor,
+    alpha: float = 0.2,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, float]:
+    """Applies Mixup augmentation at the batch level.
+
+    Blends pairs of samples and their labels so the model learns smoother
+    decision boundaries.
+
+    Args:
+        x: Input batch of shape (B, 1, n_mels, time_frames).
+        y: Label batch of shape (B,) with integer class indices.
+        alpha: Beta distribution parameter (higher = more mixing).
+
+    Returns:
+        A tuple (x_mixed, y_a, y_b, lam) where:
+            x_mixed: blended input batch,
+            y_a: original labels,
+            y_b: permuted labels,
+            lam: mixing coefficient (used to blend the loss).
+    """
+    lam: float = torch.distributions.Beta(alpha, alpha).sample().item()
+    batch_size = x.size(0)
+    perm = torch.randperm(batch_size, device=x.device)
+
+    x_mixed = lam * x + (1.0 - lam) * x[perm]
+    y_a = y
+    y_b = y[perm]
+
+    return x_mixed, y_a, y_b, lam

@@ -78,15 +78,21 @@ def train_one_fold(
     # 3. Setup Callbacks
     # Custom RichProgressBar with simplified metrics and time format
     from pytorch_lightning.callbacks.progress.rich_progress import RichProgressBarTheme
-    from rich.progress import TimeElapsedColumn, TimeRemainingColumn, TextColumn, BarColumn, Progress
+    from rich.progress import (
+        TimeElapsedColumn,
+        TimeRemainingColumn,
+        TextColumn,
+        BarColumn,
+        Progress,
+    )
 
     class CustomRichProgressBar(RichProgressBar):
         def get_metrics(self, trainer, pl_module):
             items = super().get_metrics(trainer, pl_module)
             # Only keep specified metrics
-            allowed_metrics = {"train_loss", "val_loss", "val_acc"}
+            allowed_metrics = {"train_loss", "train_acc", "val_loss", "val_acc"}
             return {k: v for k, v in items.items() if k in allowed_metrics}
-        
+
         def configure_columns(self, trainer):
             # Custom column list to control time format (implicitly handled by Rich's default string repr for small durations)
             # or we can keep it standard but simplified
@@ -101,7 +107,7 @@ def train_one_fold(
 
     callbacks = [
         # Custom Rich UI for the terminal progress bar
-        CustomRichProgressBar(leave=True),
+        CustomRichProgressBar(leave=False),
         # Model checkpointing
         ModelCheckpoint(
             dirpath=os.path.join(checkpoint_dir, experiment_name, f"fold_{fold_idx}"),
@@ -132,10 +138,8 @@ def train_one_fold(
     # 5. Execute Training
     trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
-    # 6. Optional: Test on the best model
+    # 6. Return results from the best model
     results: Dict[str, float] = {}
-    
-    # Return metrics from the best model
     results["val_loss"] = trainer.callback_metrics["val_loss"].item()
     results["val_acc"] = trainer.callback_metrics["val_acc"].item()
 
