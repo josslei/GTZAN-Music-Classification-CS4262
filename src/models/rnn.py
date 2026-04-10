@@ -81,14 +81,16 @@ class SimpleRNNModel(nn.Module):
 
 class LSTMModel(nn.Module):
     """
-    LSTM architecture for music genre classification.
+    LSTM architecture for music genre classification (~1.7M parameters).
     
     Structure:
     - Reshape: (batch, 1, height, width) -> (batch, width, height)
-    - LSTM(128, return_sequences=True) -> Dropout(0.3)
+    - LSTM(256, return_sequences=True) -> Dropout(0.3)
     - LayerNorm
-    - LSTM(128, return_sequences=False) -> Dropout(0.3)
-    - Dense(64, ReLU) -> Dropout(0.4)
+    - LSTM(256, return_sequences=True) -> Dropout(0.3)
+    - LayerNorm
+    - LSTM(256, return_sequences=False) -> Dropout(0.3)
+    - Dense(128, ReLU) -> Dropout(0.4)
     - Dense(num_classes)
     """
 
@@ -104,27 +106,37 @@ class LSTMModel(nn.Module):
         # First LSTM layer
         self.lstm1 = nn.LSTM(
             input_size=input_height,
-            hidden_size=128,
+            hidden_size=256,
             num_layers=1,
             batch_first=True
         )
         self.dropout1 = nn.Dropout(0.3)
-        self.ln1 = nn.LayerNorm(128)
+        self.ln1 = nn.LayerNorm(256)
         
         # Second LSTM layer
         self.lstm2 = nn.LSTM(
-            input_size=128,
-            hidden_size=128,
+            input_size=256,
+            hidden_size=256,
             num_layers=1,
             batch_first=True
         )
         self.dropout2 = nn.Dropout(0.3)
+        self.ln2 = nn.LayerNorm(256)
+
+        # Third LSTM layer
+        self.lstm3 = nn.LSTM(
+            input_size=256,
+            hidden_size=256,
+            num_layers=1,
+            batch_first=True
+        )
+        self.dropout3 = nn.Dropout(0.3)
         
         self.classifier = nn.Sequential(
-            nn.Linear(128, 64),
+            nn.Linear(256, 128),
             nn.ReLU(),
             nn.Dropout(0.4),
-            nn.Linear(64, num_classes)
+            nn.Linear(128, num_classes)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -137,11 +149,16 @@ class LSTMModel(nn.Module):
         x = self.dropout1(x)
         x = self.ln1(x)
 
-        # Second LSTM layer (return sequences = False)
-        x, (h_n, _) = self.lstm2(x)
+        # Second LSTM layer (return sequences = True)
+        x, _ = self.lstm2(x)
+        x = self.dropout2(x)
+        x = self.ln2(x)
+
+        # Third LSTM layer (return sequences = False)
+        x, (h_n, _) = self.lstm3(x)
         # Using the last hidden state of the top layer
         x = h_n[-1]
-        x = self.dropout2(x)
+        x = self.dropout3(x)
 
         # Classifier
         x = self.classifier(x)

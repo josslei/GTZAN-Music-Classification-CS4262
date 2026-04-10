@@ -1,12 +1,9 @@
-# Training Configuration
+# Training Configuration (Common)
 training:
-  experiment_name: "cnn"
-  max_epochs: 50
-  lr: 1e-3
-  weight_decay: 1e-2
-  patience: 10
   log_dir: "outputs/logs"
   checkpoint_dir: "outputs/checkpoints"
+  accelerator: "auto"
+  devices: "auto"
 
 model:
   num_classes: 10

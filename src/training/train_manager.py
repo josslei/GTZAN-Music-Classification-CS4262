@@ -28,29 +28,33 @@ def train_one_fold(
     model: nn.Module,
     train_loader: DataLoader,
     val_loader: DataLoader,
-    test_loader: Optional[DataLoader] = None,
     fold_idx: int = 1,
     max_epochs: int = 100,
     lr: float = 1e-3,
     weight_decay: float = 1e-2,
+    mixup_alpha: float = 0.2,
+    optimizer_params: Optional[Dict[str, Any]] = None,
+    scheduler_params: Optional[Dict[str, Any]] = None,
     patience: int = 10,
     log_dir: str = "outputs/logs",
     checkpoint_dir: str = "outputs/checkpoints",
     experiment_name: str = "genre_classification",
     accelerator: str = "auto",
     devices: Union[str, int] = "auto",
-) -> Dict[str, float]:
+) -> Dict[str, Any]:
     """Trains a model for a single fold using PyTorch Lightning.
 
     Args:
         model: PyTorch model for classification.
         train_loader: DataLoader for the training set.
         val_loader: DataLoader for the validation set.
-        test_loader: DataLoader for the test set (optional).
         fold_idx: The current fold index (used for logging).
         max_epochs: Maximum number of training epochs.
         lr: Learning rate for the optimizer.
         weight_decay: Weight decay for the optimizer.
+        mixup_alpha: Beta distribution parameter for Mixup (0 = disabled).
+        optimizer_params: Parameters for AdamW.
+        scheduler_params: Parameters for ReduceLROnPlateau.
         patience: Number of epochs to wait for improvement before early stopping.
         log_dir: Directory to save logs.
         checkpoint_dir: Directory to save model checkpoints.
@@ -59,13 +63,16 @@ def train_one_fold(
         devices: Number or list of devices to use.
 
     Returns:
-        A dictionary containing the best validation and (optionally) test metrics.
+        A dictionary containing the best validation metrics and model path.
     """
     # 1. Initialize LightningModule
     module = GenreClassifierModule(
         model=model,
         lr=lr,
         weight_decay=weight_decay,
+        mixup_alpha=mixup_alpha,
+        optimizer_params=optimizer_params,
+        scheduler_params=scheduler_params,
     )
 
     # 2. Setup Loggers (TensorBoard)
@@ -138,14 +145,10 @@ def train_one_fold(
     # 5. Execute Training
     trainer.fit(module, train_dataloaders=train_loader, val_dataloaders=val_loader)
 
-    # 6. Return results from the best model
-    results: Dict[str, float] = {}
+    # 6. Return results and checkpoint path
+    results: Dict[str, Any] = {}
     results["val_loss"] = trainer.callback_metrics["val_loss"].item()
     results["val_acc"] = trainer.callback_metrics["val_acc"].item()
-
-    if test_loader is not None:
-        test_results = trainer.test(module, dataloaders=test_loader, ckpt_path="best")
-        if test_results:
-            results.update(test_results[0])
+    results["best_model_path"] = trainer.checkpoint_callback.best_model_path
 
     return results

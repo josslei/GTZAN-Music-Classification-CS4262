@@ -33,6 +33,8 @@ class GenreClassifierModule(LightningModule):
         lr: float = 1e-3,
         weight_decay: float = 1e-2,
         mixup_alpha: float = 0.2,
+        optimizer_params: Optional[Dict[str, Any]] = None,
+        scheduler_params: Optional[Dict[str, Any]] = None,
     ) -> None:
         """Initializes the GenreClassifierModule.
 
@@ -41,6 +43,8 @@ class GenreClassifierModule(LightningModule):
             lr: Initial learning rate.
             weight_decay: L2 regularization coefficient.
             mixup_alpha: Beta distribution parameter for Mixup (0 = disabled).
+            optimizer_params: Parameters for AdamW (e.g., betas).
+            scheduler_params: Parameters for ReduceLROnPlateau (e.g., factor, patience).
         """
         super().__init__()
         self.save_hyperparameters(ignore=["model"])
@@ -48,6 +52,8 @@ class GenreClassifierModule(LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.mixup_alpha = mixup_alpha
+        self.optimizer_params = optimizer_params or {}
+        self.scheduler_params = scheduler_params or {}
         self.criterion = nn.CrossEntropyLoss()
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -123,10 +129,13 @@ class GenreClassifierModule(LightningModule):
     def configure_optimizers(self) -> Any:
         """Sets up the AdamW optimizer and ReduceLROnPlateau scheduler."""
         optimizer = optim.AdamW(
-            self.parameters(), lr=self.lr, weight_decay=self.weight_decay
+            self.parameters(),
+            lr=self.lr,
+            weight_decay=self.weight_decay,
+            **self.optimizer_params,
         )
 
-        scheduler = ReduceLROnPlateau(optimizer, mode="min", factor=0.5, patience=10)
+        scheduler = ReduceLROnPlateau(optimizer, mode="min", **self.scheduler_params)
 
         return {
             "optimizer": optimizer,

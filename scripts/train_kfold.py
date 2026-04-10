@@ -10,23 +10,25 @@ from __future__ import annotations
 
 import os
 import sys
+import argparse
 from pathlib import Path
+from typing import Any, Dict, Type, List
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import yaml
 
 # Add project root to sys.path
 root_dir = str(Path(__file__).parents[1])
 if root_dir not in sys.path:
     sys.path.append(root_dir)
 
-import argparse
-from typing import Any, Dict, Type
-
-import torch.nn as nn
-import yaml
 from src.data.mel_dataset import get_dataloaders
 from src.models.cnn import CNN2D
 from src.models.rnn import SimpleRNNModel, LSTMModel
 from src.models.crnn import CRNNModel
-
+from src.training.lightning_module import GenreClassifierModule
 from src.training.train_manager import train_one_fold
 
 # Mapping of model names to their classes
@@ -38,8 +40,7 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
 }
 
 
-
-def load_config(paths: list[str]) -> Dict[str, Any]:
+def load_config(paths: List[str]) -> Dict[str, Any]:
     """Loads and merges configuration parameters from multiple YAML files."""
     config: Dict[str, Any] = {}
     for path in paths:
@@ -49,7 +50,6 @@ def load_config(paths: list[str]) -> Dict[str, Any]:
         with open(path, "r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
             if loaded:
-                # Deep merge for the 'training' and 'model' sub-dictionaries if they exist
                 for key, value in loaded.items():
                     if (
                         key in config
@@ -64,6 +64,10 @@ def load_config(paths: list[str]) -> Dict[str, Any]:
 
 def main(args: argparse.Namespace) -> None:
     """Main execution flow for running K-fold training."""
+    # Set seed for reproducibility
+    import pytorch_lightning as pl
+    pl.seed_everything(42, workers=True)
+
     # Set float32 matmul precision for performance on Tensor Cores
     import torch
     torch.set_float32_matmul_precision("medium")
@@ -83,19 +87,17 @@ def main(args: argparse.Namespace) -> None:
     # Merge base and experiment configs
     config = load_config(base_configs + [exp_config_path])
 
-    # Determine model from config (now using model_arch if present, else model)
-    # We rename it in experiment configs to model_arch to avoid overwriting the dict
+    # Determine model architecture name
     model_name = config.get("model_arch") or config.get("model")
-    if isinstance(model_name, dict):
-        # Fallback if model was still a dict
-        print("Error: Model name not found. Ensure 'model_arch' is set in experiment config.")
+    if isinstance(model_name, dict) or not model_name:
+        print("Error: Model name not found or invalid. Check your experiment config.")
         return
     
-    if not model_name or model_name not in MODEL_REGISTRY:
+    if model_name not in MODEL_REGISTRY:
         print(f"Error: Model architecture '{model_name}' not in registry.")
         return
 
-    # 3. Apply CLI overrides to config
+    # 3. Apply CLI overrides and ensure types
     if args.epochs:
         config["training"]["max_epochs"] = int(args.epochs)
     if args.batch_size:
@@ -103,38 +105,34 @@ def main(args: argparse.Namespace) -> None:
     if args.lr:
         config["training"]["lr"] = float(args.lr)
 
-    # Ensure critical numeric parameters are correctly typed
     if "training" in config:
-        if "lr" in config["training"]:
-            config["training"]["lr"] = float(config["training"]["lr"])
-        if "weight_decay" in config["training"]:
-            config["training"]["weight_decay"] = float(
-                config["training"]["weight_decay"]
-            )
+        for k in ["lr", "weight_decay"]:
+            if k in config["training"]:
+                config["training"][k] = float(config["training"][k])
         if "max_epochs" in config["training"]:
             config["training"]["max_epochs"] = int(config["training"]["max_epochs"])
     if "batch_size" in config:
         config["batch_size"] = int(config["batch_size"])
 
     # 4. Determine which folds to run
-    folds_to_run = [args.fold] if args.fold else range(1, 6)
-
+    folds_to_run = [args.fold] if args.fold else list(range(1, 6))
     exp_name = config["training"].get("experiment_name", "exp")
+
     print(f"Experiment Config: {args.exp}")
     print(f"Model Architecture: {model_name}")
     print(f"Experiment Name:    {exp_name}")
-    print(f"Folds to Process:   {list(folds_to_run)}")
+    print(f"Folds to Process:   {folds_to_run}")
 
     # 5. Training Loop
-    all_fold_metrics: Dict[int, Dict[str, float]] = {}
+    all_fold_results: Dict[int, Dict[str, Any]] = {}
 
     for fold in folds_to_run:
         print(f"\n" + "=" * 50)
         print(f" PROCESSING FOLD {fold} ")
         print("=" * 50)
 
-        # A. Setup Dataloaders
-        train_loader, val_loader, test_loader, _ = get_dataloaders(
+        # A. Setup Dataloaders (Train & Val)
+        train_loader, val_loader, _, _ = get_dataloaders(
             metadata_path=config["metadata_path"],
             mel_dir=config["mel_dir"],
             val_fold=fold,
@@ -154,41 +152,104 @@ def main(args: argparse.Namespace) -> None:
             model=model,
             train_loader=train_loader,
             val_loader=val_loader,
-            test_loader=test_loader if fold == 1 or args.fold else None,
             fold_idx=fold,
             **config["training"],
         )
 
-        all_fold_metrics[fold] = fold_results
+        all_fold_results[fold] = fold_results
         print(f"Fold {fold} Result: Val Acc = {fold_results['val_acc']:.4f}")
 
-    # 6. Final Summary and Saving Results
+    # 6. Post-Training Evaluation (Individual Test + Ensemble)
+    print("\n" + "=" * 50)
+    print(" STARTING TEST EVALUATION ")
+    print("=" * 50)
+
+    # Get the test loader (Fold 0)
+    _, _, test_loader, _ = get_dataloaders(
+        metadata_path=config["metadata_path"],
+        mel_dir=config["mel_dir"],
+        val_fold=1, # val_fold doesn't matter for test_loader (Fold 0)
+        batch_size=config["batch_size"],
+        num_workers=config["num_workers"],
+        segment_seconds=config.get("segment_seconds"),
+        sample_rate=config.get("sample_rate", 22050),
+        hop_length=config.get("hop_length", 512),
+    )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    individual_test_accs: Dict[int, float] = {}
+    
+    all_logits: List[torch.Tensor] = []
+    true_labels: List[torch.Tensor] = []
+
+    for fold, results in all_fold_results.items():
+        best_path = results["best_model_path"]
+        print(f"Evaluating Fold {fold} using {best_path}...")
+        
+        # Load model from checkpoint
+        model_arch = MODEL_REGISTRY[model_name](num_classes=config["model"]["num_classes"])
+        lit_module = GenreClassifierModule.load_from_checkpoint(
+            best_path, model=model_arch
+        )
+        lit_module.to(device)
+        lit_module.eval()
+
+        fold_logits = []
+        fold_correct = 0
+        total = 0
+
+        with torch.no_grad():
+            for batch_idx, batch in enumerate(test_loader):
+                x, y = batch
+                x, y = x.to(device), y.to(device)
+                
+                logits = lit_module(x)
+                fold_logits.append(logits.cpu())
+                
+                if fold == list(all_fold_results.keys())[0]: # Collect labels only once
+                    true_labels.append(y.cpu())
+
+                preds = torch.argmax(logits, dim=1)
+                fold_correct += (preds == y).sum().item()
+                total += y.size(0)
+
+        acc = fold_correct / total
+        individual_test_accs[fold] = acc
+        all_logits.append(torch.cat(fold_logits, dim=0))
+        print(f"Fold {fold} Test Acc: {acc:.4f}")
+
+    # 7. Model Ensemble (Averaging Logits)
+    ensemble_acc = 0.0
+    if len(all_logits) > 0:
+        stacked_logits = torch.stack(all_logits, dim=0) # [folds, samples, classes]
+        avg_logits = torch.mean(stacked_logits, dim=0) # [samples, classes]
+        
+        y_true = torch.cat(true_labels, dim=0)
+        ensemble_preds = torch.argmax(avg_logits, dim=1)
+        ensemble_acc = (ensemble_preds == y_true).float().mean().item()
+        
+        print("\n" + "=" * 50)
+        print(f" ENSEMBLE TEST ACCURACY: {ensemble_acc:.4f}")
+        print("=" * 50)
+
+    # 8. Final Summary and Saving Results
     summary_results: Dict[str, Any] = {
         "experiment_name": exp_name,
         "model": model_name,
-        "folds": all_fold_metrics,
+        "folds": {
+            f: {"val_acc": r["val_acc"], "test_acc": individual_test_accs[f]} 
+            for f, r in all_fold_results.items()
+        },
+        "ensemble_test_acc": ensemble_acc
     }
-
-    if not args.fold and len(all_fold_metrics) > 1:
-        avg_val_acc = sum(m["val_acc"] for m in all_fold_metrics.values()) / len(
-            all_fold_metrics
-        )
-        summary_results["avg_val_acc"] = avg_val_acc
+    
+    if len(all_fold_results) > 0:
+        summary_results["avg_val_acc"] = sum(r["val_acc"] for r in all_fold_results.values()) / len(all_fold_results)
         
-        test_accs = [
-            m["test_acc"] for m in all_fold_metrics.values() if "test_acc" in m
-        ]
+    if len(individual_test_accs) > 1:
+        summary_results["avg_test_acc"] = sum(individual_test_accs.values()) / len(individual_test_accs)
 
-        print("\n" + "=" * 50)
-        print(f" K-FOLD SUMMARY FOR {model_name.upper()} ")
-        print(f" Average Validation Accuracy: {avg_val_acc:.4f}")
-        if test_accs:
-            avg_test_acc = sum(test_accs) / len(test_accs)
-            summary_results["avg_test_acc"] = avg_test_acc
-            print(f" Average Test Accuracy:       {avg_test_acc:.4f}")
-        print("=" * 50)
-
-    # 7. Save results.yaml to the output directory
+    # Save results.yaml
     results_path = os.path.join(config["training"]["log_dir"], exp_name, "results.yaml")
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
     with open(results_path, "w", encoding="utf-8") as f:
@@ -201,35 +262,10 @@ if __name__ == "__main__":
         description="Music Genre Classification Training Pipeline",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-
-    # Experiment Selection
-    parser.add_argument(
-        "--exp",
-        type=str,
-        required=True,
-        help="Name of the experiment config file in configs/experiments/ (e.g., cnn2d_baseline).",
-    )
-
-    # Fold Selection
-    parser.add_argument(
-        "--fold",
-        type=int,
-        choices=[1, 2, 3, 4, 5],
-        help="Specific fold to train (1-5). If not provided, runs all 5 folds sequentially.",
-    )
-
-    # Hyperparameter Overrides
-    parser.add_argument(
-        "--epochs",
-        type=int,
-        help="Override the maximum number of training epochs from config.",
-    )
-    parser.add_argument(
-        "--batch_size", type=int, help="Override the batch size from config."
-    )
-    parser.add_argument(
-        "--lr", type=float, help="Override the learning rate from config."
-    )
-
-    cli_args = parser.parse_args()
-    main(cli_args)
+    parser.add_argument("--exp", type=str, required=True, help="Experiment config name.")
+    parser.add_argument("--fold", type=int, choices=[1, 2, 3, 4, 5], help="Specific fold.")
+    parser.add_argument("--epochs", type=int, help="Override epochs.")
+    parser.add_argument("--batch_size", type=int, help="Override batch size.")
+    parser.add_argument("--lr", type=float, help="Override learning rate.")
+    
+    main(parser.parse_args())
