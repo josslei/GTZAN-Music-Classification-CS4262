@@ -58,18 +58,18 @@ class SpecAugment:
 
         # Frequency masking — zeroes out horizontal bands
         for _ in range(self.num_freq_masks):
-            f = torch.randint(0, self.freq_mask_param + 1, (1,)).item()
+            f = int(torch.randint(0, self.freq_mask_param + 1, (1,)).item())
             if f == 0 or n_mels - f <= 0:
                 continue
-            f0 = torch.randint(0, n_mels - f, (1,)).item()
+            f0 = int(torch.randint(0, int(n_mels - f), (1,)).item())
             mel[:, f0 : f0 + f, :] = 0.0
 
         # Time masking — zeroes out vertical bands
         for _ in range(self.num_time_masks):
-            t = torch.randint(0, self.time_mask_param + 1, (1,)).item()
+            t = int(torch.randint(0, self.time_mask_param + 1, (1,)).item())
             if t == 0 or n_frames - t <= 0:
                 continue
-            t0 = torch.randint(0, n_frames - t, (1,)).item()
+            t0 = int(torch.randint(0, int(n_frames - t), (1,)).item())
             mel[:, :, t0 : t0 + t] = 0.0
 
         return mel
@@ -124,7 +124,7 @@ class TimeShift:
         max_shift = int(n_frames * self.max_shift_fraction)
         if max_shift == 0:
             return mel
-        shift = torch.randint(-max_shift, max_shift + 1, (1,)).item()
+        shift = int(torch.randint(-max_shift, max_shift + 1, (1,)).item())
         return torch.roll(mel, shifts=shift, dims=2)
 
 
@@ -141,7 +141,7 @@ class PitchShift:
         self.max_shift = max_shift
 
     def __call__(self, mel: torch.Tensor) -> torch.Tensor:
-        shift = torch.randint(-self.max_shift, self.max_shift + 1, (1,)).item()
+        shift = int(torch.randint(-self.max_shift, self.max_shift + 1, (1,)).item())
         return torch.roll(mel, shifts=shift, dims=1)
 
 
@@ -162,12 +162,12 @@ class RandomErasing:
 
     def __call__(self, mel: torch.Tensor) -> torch.Tensor:
         _, n_mels, n_frames = mel.shape
-        f = torch.randint(1, self.max_freq + 1, (1,)).item()
-        t = torch.randint(1, self.max_time + 1, (1,)).item()
+        f = int(torch.randint(1, self.max_freq + 1, (1,)).item())
+        t = int(torch.randint(1, self.max_time + 1, (1,)).item())
         if n_mels - f <= 0 or n_frames - t <= 0:
             return mel
-        f0 = torch.randint(0, n_mels - f, (1,)).item()
-        t0 = torch.randint(0, n_frames - t, (1,)).item()
+        f0 = int(torch.randint(0, int(n_mels - f), (1,)).item())
+        t0 = int(torch.randint(0, int(n_frames - t), (1,)).item())
         mel[:, f0 : f0 + f, t0 : t0 + t] = torch.randn(1, f, t)
         return mel
 

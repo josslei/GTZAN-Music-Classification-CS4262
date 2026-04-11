@@ -149,6 +149,6 @@ def train_one_fold(
     results: Dict[str, Any] = {}
     results["val_loss"] = trainer.callback_metrics["val_loss"].item()
     results["val_acc"] = trainer.callback_metrics["val_acc"].item()
-    results["best_model_path"] = trainer.checkpoint_callback.best_model_path
+    results["best_model_path"] = getattr(trainer.checkpoint_callback, "best_model_path", "")
 
     return results

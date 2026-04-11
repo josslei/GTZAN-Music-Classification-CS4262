@@ -47,11 +47,11 @@ def generate_confusion_matrix(y_true, y_pred, log_dir, exp_name, genres=None):
     # Also save classification report
     report = classification_report(y_true, y_pred, target_names=genres)
     with open(os.path.join(log_dir, "classification_report.txt"), "w") as f:
-        f.write(report)
+        f.write(str(report))
 
     # 3. Visualize
     plt.figure(figsize=(12, 10))
-    plt.imshow(cm, interpolation='nearest', cmap=plt.cm.Blues)
+    plt.imshow(cm, interpolation='nearest', cmap="Blues")
     plt.title(f"Confusion Matrix: {exp_name}")
     plt.colorbar()
     

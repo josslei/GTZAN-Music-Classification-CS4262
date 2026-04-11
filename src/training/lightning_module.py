@@ -123,7 +123,9 @@ class GenreClassifierModule(LightningModule):
         if sch is not None:
             # For ReduceLROnPlateau, the LR is in optimizer.param_groups
             opt = self.optimizers()
-            lr = opt.param_groups[0]["lr"]
+            if isinstance(opt, list):
+                opt = opt[0]
+            lr = getattr(opt, "param_groups")[0]["lr"]
             self.log("lr", lr, on_step=False, on_epoch=True, prog_bar=False)
 
     def configure_optimizers(self) -> Any:

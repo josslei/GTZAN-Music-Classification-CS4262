@@ -224,6 +224,9 @@ def main(args: argparse.Namespace) -> None:
 
     # 7. Model Ensemble (Averaging Logits)
     ensemble_acc = 0.0
+    avg_logits = None
+    y_true = None
+    ensemble_preds = None
     if len(all_logits) > 0:
         stacked_logits = torch.stack(all_logits, dim=0) # [folds, samples, classes]
         avg_logits = torch.mean(stacked_logits, dim=0) # [samples, classes]
@@ -258,7 +261,7 @@ def main(args: argparse.Namespace) -> None:
     os.makedirs(exp_log_dir, exist_ok=True)
     
     # Save ensemble predictions and true labels for confusion matrix
-    if len(all_logits) > 0:
+    if len(all_logits) > 0 and y_true is not None and ensemble_preds is not None and avg_logits is not None:
         prediction_data = {
             "y_true": y_true,
             "y_pred": ensemble_preds,

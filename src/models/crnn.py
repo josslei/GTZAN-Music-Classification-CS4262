@@ -109,7 +109,7 @@ class CRNN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
-        x: torch.Tensor = self.features(x)
+        x = self.features(x)
 
         batch_size, channels, height, width = x.shape
         x = x.permute(0, 3, 2, 1).contiguous()
