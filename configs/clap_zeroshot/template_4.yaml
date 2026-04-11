@@ -1,0 +1,15 @@
+# Experiment: CLAP Zero-Shot using Template 4
+experiment_name: "clap_zeroshot_t4"
+
+# Model Configuration
+model_id: "laion/clap-htsat-unfused"
+model: mert
+
+# Evaluation Configuration
+template: "This audio contains {genre} music."
+batch_size: 16
+max_duration: 10
+
+# Data Configuration
+mel_dir: "dataset/mel_clap"
+metadata_path: "dataset/mel_clap/metadata.csv"
