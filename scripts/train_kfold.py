@@ -26,17 +26,19 @@ if root_dir not in sys.path:
 
 from src.data.mel_dataset import get_dataloaders
 from src.models.cnn import CNN2D
-from src.models.rnn import SimpleRNNModel, LSTMModel
-from src.models.crnn import CRNNModel
+from src.models.rnn import RNN, LSTMModel
+from src.models.crnn import CRNN, CRNNAttention
 from src.training.lightning_module import GenreClassifierModule
 from src.training.train_manager import train_one_fold
+from scripts.evaluate_confusion import generate_confusion_matrix
 
 # Mapping of model names to their classes
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "cnn2d": CNN2D,
-    "rnn_simple": SimpleRNNModel,
+    "rnn": RNN,
     "lstm": LSTMModel,
-    "crnn": CRNNModel,
+    "crnn": CRNN,
+    "crnn_attention": CRNNAttention,
 }
 
 
@@ -246,8 +248,28 @@ def main(args: argparse.Namespace) -> None:
     if len(individual_test_accs) > 1:
         summary_results["avg_test_acc"] = sum(individual_test_accs.values()) / len(individual_test_accs)
 
-    # Save results.yaml
-    results_path = os.path.join(config["training"]["log_dir"], exp_name, "results.yaml")
+    # Save results.yaml and predictions
+    exp_log_dir = os.path.join(config["training"]["log_dir"], exp_name)
+    os.makedirs(exp_log_dir, exist_ok=True)
+    
+    # Save ensemble predictions and true labels for confusion matrix
+    if len(all_logits) > 0:
+        prediction_data = {
+            "y_true": y_true,
+            "y_pred": ensemble_preds,
+            "avg_logits": avg_logits
+        }
+        torch.save(prediction_data, os.path.join(exp_log_dir, "test_predictions.pt"))
+
+        # Generate Confusion Matrix
+        generate_confusion_matrix(
+            y_true=y_true, 
+            y_pred=ensemble_preds, 
+            log_dir=exp_log_dir, 
+            exp_name=exp_name
+        )
+
+    results_path = os.path.join(exp_log_dir, "results.yaml")
     os.makedirs(os.path.dirname(results_path), exist_ok=True)
     with open(results_path, "w", encoding="utf-8") as f:
         yaml.dump(summary_results, f, default_flow_style=False)

@@ -1,5 +1,5 @@
-# Experiment: Simple RNN 3-second segments
-model_arch: "rnn_simple"
+# Experiment: RNN 3-second segments
+model_arch: "rnn"
 
 # Data Configuration
 metadata_path: "dataset/mel/metadata.csv"
@@ -16,11 +16,11 @@ model:
 
 # Overrides for training configuration
 training:
-  experiment_name: "rnn_simple_3s"
-  max_epochs: 200
+  experiment_name: "rnn_3s"
+  max_epochs: 300
   lr: 0.001
   weight_decay: 0.01
-  mixup_alpha: 0.0 # Disable mixup for simple RNN baseline
+  mixup_alpha: 0.1 # Enabled mixup now that model is larger
   patience: 30
   log_dir: "outputs/logs"
   checkpoint_dir: "outputs/checkpoints"
@@ -33,5 +33,5 @@ training:
 
   scheduler_params:
     factor: 0.5
-    patience: 10
+    patience: 15
     min_lr: 1.0e-6

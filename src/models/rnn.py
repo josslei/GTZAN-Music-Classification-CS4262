@@ -8,22 +8,20 @@ import torch
 import torch.nn as nn
 
 
-class SimpleRNNModel(nn.Module):
+class RNN(nn.Module):
     """
-    Simple RNN architecture for music genre classification.
+    RNN architecture for music genre classification, scaled to ~1.7M parameters.
 
     Structure:
     - Reshape: (batch, 1, height, width) -> (batch, width, height)
-    - SimpleRNN(64, return_sequences=True)
-    - LayerNorm -> Dropout(0.3)
-    - SimpleRNN(64, return_sequences=False)
-    - LayerNorm -> Dropout(0.3)
-    - Dense(32, ReLU)
+    - Bi-RNN(256, 3 layers) -> Dropout(0.3)
+    - LayerNorm
+    - Dense(128, ReLU) -> Dropout(0.4)
     - Dense(num_classes)
     """
 
     def __init__(self, num_classes: int = 10, input_height: int = 128) -> None:
-        """Initializes the SimpleRNNModel.
+        """Initializes the RNN model.
 
         Args:
             num_classes: Number of target genres.
@@ -31,30 +29,25 @@ class SimpleRNNModel(nn.Module):
         """
         super().__init__()
 
-        # First RNN layer
-        self.rnn1 = nn.RNN(
+        # RNN layers
+        # Using 3 layers with 512 hidden size (256 each direction)
+        self.rnn = nn.RNN(
             input_size=input_height,
-            hidden_size=64,
-            num_layers=1,
+            hidden_size=256,
+            num_layers=3,
             batch_first=True,
+            bidirectional=True,
+            dropout=0.3,
             nonlinearity="tanh",
         )
-        self.ln1 = nn.LayerNorm(64)
-        self.dropout1 = nn.Dropout(0.3)
+        self.projection = nn.Linear(input_height, 256 * 2)
 
-        # Second RNN layer
-        self.rnn2 = nn.RNN(
-            input_size=64,
-            hidden_size=64,
-            num_layers=1,
-            batch_first=True,
-            nonlinearity="tanh",
-        )
-        self.ln2 = nn.LayerNorm(64)
-        self.dropout2 = nn.Dropout(0.3)
+        # Bi-RNN with hidden_size 256 results in 512 output features
+        self.ln = nn.LayerNorm(512)
+        self.dropout = nn.Dropout(0.3)
 
-        self.fc = nn.Sequential(
-            nn.Linear(64, 32), nn.ReLU(), nn.Linear(32, num_classes)
+        self.classifier = nn.Sequential(
+            nn.Linear(512, 128), nn.ReLU(), nn.Dropout(0.4), nn.Linear(128, num_classes)
         )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -62,18 +55,19 @@ class SimpleRNNModel(nn.Module):
         # Reshape: (batch, 1, height, width) -> (batch, width, height)
         x = x.squeeze(1).transpose(1, 2)
 
-        # First RNN layer (return sequences = True)
-        x, _ = self.rnn1(x)
-        x = self.ln1(x)
-        x = self.dropout1(x)
+        # RNN layers
+        residual = self.projection(x)
+        x, _ = self.rnn(x)
+        x = x + residual
 
-        # Second RNN layer (return sequences = False)
-        x, _ = self.rnn2(x)
-        x = x[:, -1, :]  # (batch, 64)
-        x = self.ln2(x)
-        x = self.dropout2(x)
+        # Global average pooling over time
+        x = x.mean(dim=1)
 
-        x = self.fc(x)
+        x = self.ln(x)
+        x = self.dropout(x)
+
+        # Classifier
+        x = self.classifier(x)
         return x
 
 
