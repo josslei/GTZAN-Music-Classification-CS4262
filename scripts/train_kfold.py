@@ -72,11 +72,8 @@ def main(args: argparse.Namespace) -> None:
     import torch
     torch.set_float32_matmul_precision("medium")
 
-    # 1. Load base configurations
-    base_configs = ["configs/data.yaml", "configs/train.yaml"]
-
-    # 2. Determine and load experiment configuration
-    exp_config_path = os.path.join("configs", "experiments", args.exp)
+    # 1. Load experiment configuration
+    exp_config_path = os.path.join("configs", args.exp)
     if not exp_config_path.endswith((".yaml", ".yml")):
         exp_config_path += ".yaml"
 
@@ -84,8 +81,8 @@ def main(args: argparse.Namespace) -> None:
         print(f"Error: Experiment config not found at {exp_config_path}")
         return
 
-    # Merge base and experiment configs
-    config = load_config(base_configs + [exp_config_path])
+    # Load only the experiment config
+    config = load_config([exp_config_path])
 
     # Determine model architecture name
     model_name = config.get("model_arch") or config.get("model")

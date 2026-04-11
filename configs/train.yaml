@@ -1,9 +1,0 @@
-# Training Configuration (Common)
-training:
-  log_dir: "outputs/logs"
-  checkpoint_dir: "outputs/checkpoints"
-  accelerator: "auto"
-  devices: "auto"
-
-model:
-  num_classes: 10

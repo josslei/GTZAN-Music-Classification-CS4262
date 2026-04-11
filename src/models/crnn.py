@@ -11,7 +11,7 @@ import torch.nn as nn
 class CRNNModel(nn.Module):
     """
     CRNN architecture for music genre classification.
-    
+
     Structure:
     - CNN Part:
         - Conv(64, 3x3) -> BN -> ELU -> MaxPool(2, 1)
@@ -32,70 +32,91 @@ class CRNNModel(nn.Module):
             input_height: The number of mel bands (N_MELS).
         """
         super().__init__()
-        
+
         # 1. CNN Part
         self.features = nn.Sequential(
             # Block 1: Reduce height by 2, keep width
             nn.Conv2d(1, 64, kernel_size=3, padding=1),
             nn.BatchNorm2d(64),
-            nn.ELU(),
+            nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 1), stride=(2, 1)),
-
-            # Block 2: Reduce height by 4, keep width
+            # Block 2: Reduce height by 2, keep width
             nn.Conv2d(64, 128, kernel_size=3, padding=1),
             nn.BatchNorm2d(128),
-            nn.ELU(),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=(2, 1), stride=(2, 1)),
+            # Block 3: Reduce height by 4, keep width
+            nn.Conv2d(128, 256, kernel_size=3, padding=1),
+            nn.BatchNorm2d(256),
+            nn.ReLU(),
             nn.MaxPool2d(kernel_size=(4, 1), stride=(4, 1)),
         )
+        self.cnn_feature_pool = nn.AdaptiveAvgPool2d((1, 1))
 
-        # Calculate height after CNN: 128 // 2 // 4 = 16
-        cnn_out_height = input_height // 2 // 4
-        rnn_input_size = 128 * cnn_out_height # 128 channels * 16 height bins = 2048
+        # Calculate height after CNN
+        cnn_out_height = input_height // 2 // 2 // 4
+        rnn_input_size = 256 * cnn_out_height
 
         # 2. RNN Part
-        # Note: dropout in LSTM is only applied between layers, 
+        # Note: dropout in LSTM is only applied between layers,
         # but for num_layers=1 we handle it manually or just define it.
         # PyTorch ignores dropout if num_layers=1.
-        self.lstm = nn.LSTM(
+        self.lstm1 = nn.LSTM(
             input_size=rnn_input_size,
-            hidden_size=64,
+            hidden_size=128,
             num_layers=1,
             batch_first=True,
-            bidirectional=True
+            bidirectional=True,
+            dropout=0.3,
         )
-        self.dropout = nn.Dropout(0.3)
+        self.ln1 = nn.LayerNorm(128 * 2)
+        self.dropout1 = nn.Dropout(0.3)
+
+        self.lstm2 = nn.LSTM(
+            input_size=256,
+            hidden_size=128,
+            num_layers=1,
+            batch_first=True,
+            bidirectional=True,
+            dropout=0.3,
+        )
 
         # 3. Classifier
-        # Bidirectional hidden_size=64 -> 128
-        self.classifier = nn.Linear(64 * 2, num_classes)
+        self.classifier = nn.Sequential(
+            nn.Linear(128 * 2, 128),
+            nn.ReLU(),
+            nn.Dropout(0.3),
+            nn.Linear(128, num_classes),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass.
-        
+
         Args:
             x: Input tensor of shape (batch, 1, height, width).
-            
+
         Returns:
             Logits for each class.
         """
         # CNN Part: (batch, 1, 128, width) -> (batch, 128, 16, width)
-        x = self.features(x)
+        features: torch.Tensor = self.features(x)
 
         # Reshape for LSTM: (batch, C, H, W) -> (batch, W, H * C)
-        batch_size, channels, height, width = x.shape
-        x = x.permute(0, 3, 2, 1).contiguous() # (batch, width, height, channels)
+        batch_size, channels, height, width = features.shape
+        x = features.permute(0, 3, 2, 1).contiguous()  # (B, W, H, C)
         x = x.view(batch_size, width, height * channels)
 
         # RNN Part
         # x shape: (batch, width, 128)
-        _, (h_n, _) = self.lstm(x)
-        
-        # Concatenate final hidden states of forward and backward directions
-        # h_n shape: (num_layers * num_directions, batch, hidden_size)
-        x = torch.cat((h_n[-2, :, :], h_n[-1, :, :]), dim=1) # (batch, 128)
-        
-        # Apply dropout (as requested)
-        x = self.dropout(x)
+        x, _ = self.lstm1(x)
+        x = self.ln1(x)
+        x = self.dropout1(x)
+        x, _ = self.lstm2(x)
+        x = x.mean(dim=1)
+
+        # Residual connection
+        features = self.cnn_feature_pool(features).squeeze()
+        x = x + features
 
         # Classifier
         x = self.classifier(x)

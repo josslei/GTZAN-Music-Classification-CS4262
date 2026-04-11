@@ -171,7 +171,10 @@ def get_dataloaders(
 
     # Initialize datasets (augmentation applied to training set only)
     train_dataset = MelSpectrogramDataset(
-        train_data, mel_dir, class_mapping, max_frames=max_frames,
+        train_data,
+        mel_dir,
+        class_mapping,
+        max_frames=max_frames,
         transform=MelAugment(),
     )
     val_dataset = MelSpectrogramDataset(

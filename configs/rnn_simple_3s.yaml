@@ -1,6 +1,18 @@
 # Experiment: Simple RNN 3-second segments
 model_arch: "rnn_simple"
+
+# Data Configuration
+metadata_path: "dataset/mel/metadata.csv"
+mel_dir: "dataset/mel"
+batch_size: 64
+num_workers: 4
+sample_rate: 22050
+hop_length: 512
 segment_seconds: 3.0
+
+# Model Configuration
+model:
+  num_classes: 10
 
 # Overrides for training configuration
 training:
@@ -10,6 +22,10 @@ training:
   weight_decay: 0.01
   mixup_alpha: 0.0 # Disable mixup for simple RNN baseline
   patience: 30
+  log_dir: "outputs/logs"
+  checkpoint_dir: "outputs/checkpoints"
+  accelerator: "auto"
+  devices: "auto"
 
   optimizer_params:
     betas: [0.9, 0.999]
