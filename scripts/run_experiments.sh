@@ -8,9 +8,11 @@ cd "$(dirname "$0")/.."
 # List of experiment configs in configs/
 EXPERIMENTS=(
     "rnn_3s"
+    "rnna_3s"
     "lstm_3s"
-    "cnn2d_3s"
-    "cnn2d_3c_3s"
+    "lstma_3s"
+    #"cnn2d_3s"
+    #"cnn2d_3c_3s"
     "crnn_3s"
     "crnn_6s"
     "crnna_3s"

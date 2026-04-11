@@ -1,5 +1,5 @@
-# Experiment: RNN 3-second segments
-model_arch: "rnn"
+# Experiment: LSTM with Attention 3-second segments
+model_arch: "lstma"
 
 # Data Configuration
 metadata_path: "dataset/mel/metadata.csv"
@@ -16,12 +16,12 @@ model:
 
 # Overrides for training configuration
 training:
-  experiment_name: "rnn_3s"
+  experiment_name: "lstma_3s"
   max_epochs: 300
-  lr: 0.0008
+  lr: 0.001
   weight_decay: 0.01
-  mixup_alpha: 0.1 # Enabled mixup now that model is larger
-  patience: 30
+  mixup_alpha: 0.1
+  patience: 40
   log_dir: "outputs/logs"
   checkpoint_dir: "outputs/checkpoints"
   accelerator: "auto"

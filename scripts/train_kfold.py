@@ -26,7 +26,7 @@ if root_dir not in sys.path:
 
 from src.data.mel_dataset import get_dataloaders
 from src.models.cnn import CNN2D, CNN2D3C
-from src.models.rnn import RNN, LSTMModel
+from src.models.rnn import RNN, RNNAttention, LSTM, LSTMAttention
 from src.models.crnn import CRNN, CRNNAttention, CRNN3C, CRNN3CAttention
 from src.training.lightning_module import GenreClassifierModule
 from src.training.train_manager import train_one_fold
@@ -37,7 +37,9 @@ MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "cnn2d": CNN2D,
     "cnn2d_3c": CNN2D3C,
     "rnn": RNN,
-    "lstm": LSTMModel,
+    "rnna": RNNAttention,
+    "lstm": LSTM,
+    "lstma": LSTMAttention,
     "crnn": CRNN,
     "crnna": CRNNAttention,
     "crnn3c": CRNN3C,

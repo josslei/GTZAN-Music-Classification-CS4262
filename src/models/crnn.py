@@ -72,13 +72,13 @@ class CRNN(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(4, 1), stride=(4, 1)),
         )
-        self.cnn_feature_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         # Calculate height after CNN
         cnn_out_height = input_height // 2 // 2 // 4
         rnn_input_size = 256 * cnn_out_height
 
         # 2. RNN Part
+        self.ln1 = nn.LayerNorm(rnn_input_size)
         self.lstm1 = nn.LSTM(
             input_size=rnn_input_size,
             hidden_size=128,
@@ -86,9 +86,10 @@ class CRNN(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
-        self.ln1 = nn.LayerNorm(128 * 2)
         self.dropout1 = nn.Dropout(0.3)
+        self.projection1 = nn.Linear(rnn_input_size, 128 * 2)
 
+        self.ln2 = nn.LayerNorm(128 * 2)
         self.lstm2 = nn.LSTM(
             input_size=256,
             hidden_size=128,
@@ -108,26 +109,27 @@ class CRNN(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         """Forward pass."""
-        features: torch.Tensor = self.features(x)
+        x: torch.Tensor = self.features(x)
 
-        batch_size, channels, height, width = features.shape
-        x = features.permute(0, 3, 2, 1).contiguous()
+        batch_size, channels, height, width = x.shape
+        x = x.permute(0, 3, 2, 1).contiguous()
         x = x.view(batch_size, width, height * channels)
 
         # RNN Part
-        x, _ = self.lstm1(x)
+        residual = self.projection1(x)
         x = self.ln1(x)
+        x, _ = self.lstm1(x)
+        x += residual
         x = self.dropout1(x)
-        
+
+        residual = x
+        x = self.ln2(x)
         x, _ = self.lstm2(x)
+        x = x + residual
         x = self.dropout2(x)
-        
+
         # Average pooling over time
         x = x.mean(dim=1)
-
-        # Residual connection from CNN features
-        features_pooled = self.cnn_feature_pool(features).squeeze(-1).squeeze(-1)
-        x = x + features_pooled
 
         # Classifier
         x = self.classifier(x)
@@ -158,13 +160,13 @@ class CRNNAttention(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(4, 1), stride=(4, 1)),
         )
-        self.cnn_feature_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         # Calculate height after CNN
         cnn_out_height = input_height // 2 // 2 // 4
         rnn_input_size = 256 * cnn_out_height
 
         # 2. RNN Part
+        self.ln1 = nn.LayerNorm(rnn_input_size)
         self.lstm1 = nn.LSTM(
             input_size=rnn_input_size,
             hidden_size=128,
@@ -172,9 +174,10 @@ class CRNNAttention(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
-        self.ln1 = nn.LayerNorm(128 * 2)
         self.dropout1 = nn.Dropout(0.3)
+        self.projection1 = nn.Linear(rnn_input_size, 128 * 2)
 
+        self.ln2 = nn.LayerNorm(256)
         self.lstm2 = nn.LSTM(
             input_size=256,
             hidden_size=128,
@@ -204,19 +207,20 @@ class CRNNAttention(nn.Module):
         x = x.view(batch_size, width, height * channels)
 
         # RNN Part
-        x, _ = self.lstm1(x)
+        residual = self.projection1(x)
         x = self.ln1(x)
+        x, _ = self.lstm1(x)
+        x += residual
         x = self.dropout1(x)
-        
-        x, _ = self.lstm2(x)
-        x = self.dropout2(x)
-        
-        # Use Attention instead of mean pooling
-        x, _attn_weights = self.attention(x)
 
-        # Residual connection from CNN features
-        features_pooled = self.cnn_feature_pool(features).squeeze(-1).squeeze(-1)
-        x = x + features_pooled
+        residual = x
+        x = self.ln2(x)
+        x, _ = self.lstm2(x)
+        x += residual
+        x = self.dropout2(x)
+
+        # Use Attention instead of mean pooling
+        x, _ = self.attention(x)
 
         # Classifier
         x = self.classifier(x)
@@ -231,7 +235,7 @@ class CRNN3C(nn.Module):
     def __init__(self, num_classes: int = 10, input_height: int = 128) -> None:
         """Initializes the CRNN3C model."""
         super().__init__()
-        
+
         self.delta_features = DeltaFeatures()
 
         # 1. CNN Part (3 channels input)
@@ -249,12 +253,12 @@ class CRNN3C(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(4, 1), stride=(4, 1)),
         )
-        self.cnn_feature_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         cnn_out_height = input_height // 2 // 2 // 4
         rnn_input_size = 256 * cnn_out_height
 
         # 2. RNN Part
+        self.ln1 = nn.LayerNorm(rnn_input_size)
         self.lstm1 = nn.LSTM(
             input_size=rnn_input_size,
             hidden_size=128,
@@ -262,9 +266,10 @@ class CRNN3C(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
-        self.ln1 = nn.LayerNorm(128 * 2)
         self.dropout1 = nn.Dropout(0.3)
+        self.projection1 = nn.Linear(rnn_input_size, 128 * 2)
 
+        self.ln2 = nn.LayerNorm(256)
         self.lstm2 = nn.LSTM(
             input_size=256,
             hidden_size=128,
@@ -291,17 +296,19 @@ class CRNN3C(nn.Module):
         x = features.permute(0, 3, 2, 1).contiguous()
         x = x.view(batch_size, width, height * channels)
 
-        x, _ = self.lstm1(x)
+        residual = self.projection1(x)
         x = self.ln1(x)
+        x, _ = self.lstm1(x)
+        x += residual
         x = self.dropout1(x)
-        
-        x, _ = self.lstm2(x)
-        x = self.dropout2(x)
-        
-        x = x.mean(dim=1)
 
-        features_pooled = self.cnn_feature_pool(features).squeeze(-1).squeeze(-1)
-        x = x + features_pooled
+        residual = x
+        x = self.ln2(x)
+        x, _ = self.lstm2(x)
+        x += residual
+        x = self.dropout2(x)
+
+        x = x.mean(dim=1)
 
         x = self.classifier(x)
         return x
@@ -315,7 +322,7 @@ class CRNN3CAttention(nn.Module):
     def __init__(self, num_classes: int = 10, input_height: int = 128) -> None:
         """Initializes the CRNN3CAttention model."""
         super().__init__()
-        
+
         self.delta_features = DeltaFeatures()
 
         # 1. CNN Part (3 channels input)
@@ -333,12 +340,12 @@ class CRNN3CAttention(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(4, 1), stride=(4, 1)),
         )
-        self.cnn_feature_pool = nn.AdaptiveAvgPool2d((1, 1))
 
         cnn_out_height = input_height // 2 // 2 // 4
         rnn_input_size = 256 * cnn_out_height
 
         # 2. RNN Part
+        self.ln1 = nn.LayerNorm(rnn_input_size)
         self.lstm1 = nn.LSTM(
             input_size=rnn_input_size,
             hidden_size=128,
@@ -346,9 +353,10 @@ class CRNN3CAttention(nn.Module):
             batch_first=True,
             bidirectional=True,
         )
-        self.ln1 = nn.LayerNorm(128 * 2)
         self.dropout1 = nn.Dropout(0.3)
+        self.projection1 = nn.Linear(rnn_input_size, 128 * 2)
 
+        self.ln2 = nn.LayerNorm(256)
         self.lstm2 = nn.LSTM(
             input_size=256,
             hidden_size=128,
@@ -378,17 +386,19 @@ class CRNN3CAttention(nn.Module):
         x = features.permute(0, 3, 2, 1).contiguous()
         x = x.view(batch_size, width, height * channels)
 
-        x, _ = self.lstm1(x)
+        residual = self.projection1(x)
         x = self.ln1(x)
+        x, _ = self.lstm1(x)
+        x += residual
         x = self.dropout1(x)
-        
-        x, _ = self.lstm2(x)
-        x = self.dropout2(x)
-        
-        x, _attn_weights = self.attention(x)
 
-        features_pooled = self.cnn_feature_pool(features).squeeze(-1).squeeze(-1)
-        x = x + features_pooled
+        residual = x
+        x = self.ln2(x)
+        x, _ = self.lstm2(x)
+        x += residual
+        x = self.dropout2(x)
+
+        x, _ = self.attention(x)
 
         x = self.classifier(x)
         return x
