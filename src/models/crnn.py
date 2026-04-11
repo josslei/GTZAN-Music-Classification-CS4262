@@ -119,7 +119,7 @@ class CRNN(nn.Module):
         residual = self.projection1(x)
         x = self.ln1(x)
         x, _ = self.lstm1(x)
-        x += residual
+        x = x + residual
         x = self.dropout1(x)
 
         residual = x
@@ -210,13 +210,13 @@ class CRNNAttention(nn.Module):
         residual = self.projection1(x)
         x = self.ln1(x)
         x, _ = self.lstm1(x)
-        x += residual
+        x = x + residual
         x = self.dropout1(x)
 
         residual = x
         x = self.ln2(x)
         x, _ = self.lstm2(x)
-        x += residual
+        x = x + residual
         x = self.dropout2(x)
 
         # Use Attention instead of mean pooling
@@ -299,13 +299,13 @@ class CRNN3C(nn.Module):
         residual = self.projection1(x)
         x = self.ln1(x)
         x, _ = self.lstm1(x)
-        x += residual
+        x = x + residual
         x = self.dropout1(x)
 
         residual = x
         x = self.ln2(x)
         x, _ = self.lstm2(x)
-        x += residual
+        x = x + residual
         x = self.dropout2(x)
 
         x = x.mean(dim=1)
@@ -389,13 +389,13 @@ class CRNN3CAttention(nn.Module):
         residual = self.projection1(x)
         x = self.ln1(x)
         x, _ = self.lstm1(x)
-        x += residual
+        x = x + residual
         x = self.dropout1(x)
 
         residual = x
         x = self.ln2(x)
         x, _ = self.lstm2(x)
-        x += residual
+        x = x + residual
         x = self.dropout2(x)
 
         x, _ = self.attention(x)
