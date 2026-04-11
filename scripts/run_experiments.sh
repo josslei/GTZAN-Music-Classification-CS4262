@@ -10,9 +10,12 @@ EXPERIMENTS=(
     "rnn_3s"
     "lstm_3s"
     "cnn2d_3s"
+    "cnn2d_3c_3s"
     "crnn_3s"
     "crnn_6s"
-    "crnn_attn_3s"
+    "crnna_3s"
+    "crnn3c_3s"
+    "crnn3ca_3s"
 )
 
 LOG_DIR="outputs/logs"

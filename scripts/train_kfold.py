@@ -25,9 +25,9 @@ if root_dir not in sys.path:
     sys.path.append(root_dir)
 
 from src.data.mel_dataset import get_dataloaders
-from src.models.cnn import CNN2D
+from src.models.cnn import CNN2D, CNN2D3C
 from src.models.rnn import RNN, LSTMModel
-from src.models.crnn import CRNN, CRNNAttention
+from src.models.crnn import CRNN, CRNNAttention, CRNN3C, CRNN3CAttention
 from src.training.lightning_module import GenreClassifierModule
 from src.training.train_manager import train_one_fold
 from scripts.evaluate_confusion import generate_confusion_matrix
@@ -35,10 +35,13 @@ from scripts.evaluate_confusion import generate_confusion_matrix
 # Mapping of model names to their classes
 MODEL_REGISTRY: Dict[str, Type[nn.Module]] = {
     "cnn2d": CNN2D,
+    "cnn2d_3c": CNN2D3C,
     "rnn": RNN,
     "lstm": LSTMModel,
     "crnn": CRNN,
-    "crnn_attention": CRNNAttention,
+    "crnna": CRNNAttention,
+    "crnn3c": CRNN3C,
+    "crnn3ca": CRNN3CAttention,
 }
 
 
