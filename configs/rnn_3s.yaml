@@ -17,11 +17,11 @@ model:
 # Overrides for training configuration
 training:
   experiment_name: "rnn_3s"
-  max_epochs: 300
-  lr: 0.0008
+  max_epochs: 400
+  lr: 0.001
   weight_decay: 0.01
   mixup_alpha: 0.1 # Enabled mixup now that model is larger
-  patience: 30
+  patience: 40
   log_dir: "outputs/logs"
   checkpoint_dir: "outputs/checkpoints"
   accelerator: "auto"

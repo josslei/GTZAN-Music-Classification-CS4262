@@ -23,7 +23,8 @@ class RNN(nn.Module):
         """
         super().__init__()
 
-        self.rnn = nn.RNN(
+        self.ln1 = nn.LayerNorm(input_height)
+        self.rnn1 = nn.RNN(
             input_size=input_height,
             hidden_size=256,
             num_layers=3,
@@ -32,10 +33,30 @@ class RNN(nn.Module):
             dropout=0.3,
             nonlinearity="tanh",
         )
-        self.projection = nn.Linear(input_height, 256 * 2)
 
-        self.ln1 = nn.LayerNorm(input_height)
         self.ln2 = nn.LayerNorm(512)
+        self.rnn2 = nn.RNN(
+            input_size=512,
+            hidden_size=256,
+            num_layers=3,
+            batch_first=True,
+            bidirectional=True,
+            dropout=0.3,
+            nonlinearity="tanh",
+        )
+
+        self.ln3 = nn.LayerNorm(512)
+        self.rnn3 = nn.RNN(
+            input_size=512,
+            hidden_size=256,
+            num_layers=3,
+            batch_first=True,
+            bidirectional=True,
+            dropout=0.3,
+            nonlinearity="tanh",
+        )
+
+        self.ln4 = nn.LayerNorm(512)
         self.dropout = nn.Dropout(0.3)
 
         self.classifier = nn.Sequential(
@@ -46,15 +67,23 @@ class RNN(nn.Module):
         """Forward pass."""
         x = x.squeeze(1).transpose(1, 2)
 
-        residual = self.projection(x)
         x = self.ln1(x)
-        x, _ = self.rnn(x)
+        x, _ = self.rnn1(x)
+
+        residual = x
+        x = self.ln2(x)
+        x, _ = self.rnn2(x)
+        x = x + residual
+
+        residual = x
+        x = self.ln3(x)
+        x, _ = self.rnn3(x)
         x = x + residual
 
         # Global average pooling over time
         x = x.mean(dim=1)
 
-        x = self.ln2(x)
+        x = self.ln4(x)
         x = self.dropout(x)
 
         x = self.classifier(x)
@@ -70,7 +99,8 @@ class RNNAttention(nn.Module):
         """Initializes the RNNAttention model."""
         super().__init__()
 
-        self.rnn = nn.RNN(
+        self.ln1 = nn.LayerNorm(input_height)
+        self.rnn1 = nn.RNN(
             input_size=input_height,
             hidden_size=256,
             num_layers=3,
@@ -79,13 +109,33 @@ class RNNAttention(nn.Module):
             dropout=0.3,
             nonlinearity="tanh",
         )
-        self.projection = nn.Linear(input_height, 256 * 2)
+
+        self.ln2 = nn.LayerNorm(512)
+        self.rnn2 = nn.RNN(
+            input_size=512,
+            hidden_size=256,
+            num_layers=3,
+            batch_first=True,
+            bidirectional=True,
+            dropout=0.3,
+            nonlinearity="tanh",
+        )
+
+        self.ln3 = nn.LayerNorm(512)
+        self.rnn3 = nn.RNN(
+            input_size=512,
+            hidden_size=256,
+            num_layers=3,
+            batch_first=True,
+            bidirectional=True,
+            dropout=0.3,
+            nonlinearity="tanh",
+        )
 
         # Attention layer for 512-dimensional output (256 hidden * 2 directions)
         self.attention = TemporalAttention(hidden_dim=512)
 
-        self.ln1 = nn.LayerNorm(input_height)
-        self.ln2 = nn.LayerNorm(512)
+        self.ln4 = nn.LayerNorm(512)
         self.dropout = nn.Dropout(0.3)
 
         self.classifier = nn.Sequential(
@@ -96,15 +146,23 @@ class RNNAttention(nn.Module):
         """Forward pass."""
         x = x.squeeze(1).transpose(1, 2)
 
-        residual = self.projection(x)
         x = self.ln1(x)
-        x, _ = self.rnn(x)
+        x, _ = self.rnn1(x)
+
+        residual = x
+        x = self.ln2(x)
+        x, _ = self.rnn2(x)
+        x = x + residual
+
+        residual = x
+        x = self.ln3(x)
+        x, _ = self.rnn3(x)
         x = x + residual
 
         # Use Attention instead of mean pooling
         x, _ = self.attention(x)
 
-        x = self.ln2(x)
+        x = self.ln4(x)
         x = self.dropout(x)
 
         x = self.classifier(x)
