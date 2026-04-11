@@ -1,13 +1,26 @@
-librosa
-numpy
-pytorch-lightning
-scikit-learn
-torch
+# Core Machine Learning
+torch>=2.0.0
 torchvision
 torchaudio
+pytorch-lightning>=2.0.0
+torchmetrics
+
+# Data Processing & Audio
+librosa>=0.10.0
+numpy<2.0.0
+pandas
+scikit-learn
+scipy
+
+# Transformers & CLAP
+transformers>=4.30.0
+tokenizers
+huggingface-hub
+
+# Utilities & Visualization
 pyyaml
-rich
-tensorboard
 matplotlib
-# scipy (indirectly via librosa)
-# pandas (if needed for CSV handling, though you're using csv module)
+rich
+tqdm
+pathlib
+python-slugify
