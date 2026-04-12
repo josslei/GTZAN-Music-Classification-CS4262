@@ -30,7 +30,7 @@ if root_dir not in sys.path:
 
 # Mapping of short names to HuggingFace model IDs
 MODEL_MAPPING = {
-    "mert": "m-a-p/MERT-v1-330M",
+    "unfused": "laion/clap-htsat-unfused",
     "larger": "laion/larger_clap_music",
     "lukewys": "lukewys/laion_clap",
     "microsoft": "microsoft/clap-2023",
@@ -42,25 +42,16 @@ def load_config(paths: List[str]) -> Dict[str, Any]:
     config: Dict[str, Any] = {}
     for path in paths:
         if not os.path.exists(path):
-            print(f"Warning: Config file {path} not found.")
             continue
         with open(path, "r", encoding="utf-8") as f:
             loaded = yaml.safe_load(f)
             if loaded:
-                for key, value in loaded.items():
-                    if (
-                        key in config
-                        and isinstance(config[key], dict)
-                        and isinstance(value, dict)
-                    ):
-                        config[key].update(value)
-                    else:
-                        config[key] = value
+                config.update(loaded)
     return config
 
 
 def load_test_data(metadata_path: Path, mel_dir: Path):
-    """Loads the test set (Fold 0) metadata and returns paths and labels."""
+    """Loads the test set (Fold 0) metadata."""
     test_records = []
     with open(metadata_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -73,7 +64,7 @@ def load_test_data(metadata_path: Path, mel_dir: Path):
 
 
 def get_genres(metadata_path: Path):
-    """Extracts the sorted list of genres to map indices to string names."""
+    """Extracts sorted list of genres."""
     genres = set()
     with open(metadata_path, "r", encoding="utf-8") as f:
         reader = csv.DictReader(f)
@@ -88,71 +79,51 @@ def main(args: argparse.Namespace):
     if not exp_config_path.endswith((".yaml", ".yml")):
         exp_config_path += ".yaml"
 
-    if not os.path.exists(exp_config_path):
-        print(f"Error: Experiment config not found at {exp_config_path}")
-        return
-
     config = load_config([exp_config_path])
 
     # CLI Overrides
-    if args.model is not None:
-        config["model"] = args.model
-    if args.template is not None:
-        config["template"] = args.template
-    if args.batch_size is not None:
-        config["batch_size"] = args.batch_size
-    if args.max_duration is not None:
-        config["max_duration"] = args.max_duration
+    model_key = str(args.model if args.model else config.get("model", "unfused"))
+    model_id = str(MODEL_MAPPING.get(model_key, model_key))
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
-    print(f"Experiment Config: {args.exp}")
+    print(f"Loading CLAP model: {model_id}...")
 
-    mel_dir = Path(config.get("mel_dir", "dataset/mel_clap"))
-    metadata_path = Path(config.get("metadata_path", "dataset/mel_clap/metadata.csv"))
+    # 1. Initialize Model and Processor
+    # Use ClapModel class explicitly to ensure get_text_features/get_audio_features 
+    # use the projected outputs
+    processor: Any = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+    model: Any = ClapModel.from_pretrained(model_id, trust_remote_code=True).to(device)
+    model.eval()
+
+    mel_dir = Path("dataset/mel_clap")
+    metadata_path = mel_dir / "metadata.csv"
 
     if not metadata_path.exists():
         print(
-            f"Error: {metadata_path} not found. Please run: python scripts/prepare_mel.py --clap-mode"
+            "Error: metadata.csv not found. Run python scripts/prepare_mel.py --clap-mode first."
         )
         return
 
-    # Load data
+    # 2. Load Data
     test_records = load_test_data(metadata_path, mel_dir)
     genres = get_genres(metadata_path)
     print(f"Found {len(test_records)} test samples in Fold 0.")
-    print(f"Genres: {genres}")
 
-    # Prepare text prompts
-    template = config.get("template", "This is a {genre} song.")
+    # 3. Prepare Text Prompts (Templates)
+    template = str(
+        args.template if args.template else config.get("template", "This is a {genre} song.")
+    )
     print(f"Using template: '{template}'")
+
     text_prompts = [template.format(genre=genre) for genre in genres]
 
-    # Initialize Model
-    model_key = str(config.get("model", "mert"))
-    model_id = str(MODEL_MAPPING.get(model_key, model_key))
-    print(f"Loading model: {model_key} ({model_id})...")
-    import typing
-
-    processor: typing.Any = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-    model: typing.Any = AutoModel.from_pretrained(model_id, trust_remote_code=True)
-    model = model.to(device)
-    model.eval()
-
-    # Pre-compute text embeddings for the prompts
-    # Note: Zero-shot classification requires a text encoder (CLAP).
-    # MERT is an audio encoder only and will require a linear probe later.
-    if not hasattr(model, "get_text_features"):
-        print(f"\n[!] Error: Model '{model_key}' does not have a text encoder for zero-shot tasks.")
-        print(f"    Zero-shot similarity requires a CLAP-style model (e.g., larger, lukewys, microsoft).")
-        print(f"    '{model_key}' can be used for feature extraction and linear probing in the future.")
-        return
-
-    print("Computing text embeddings...")
+    # Pre-compute text embeddings for the labels
+    print("Computing text embeddings for labels...")
     with torch.no_grad():
         text_inputs = processor(text=text_prompts, return_tensors="pt", padding=True)
         text_inputs = {k: v.to(device) for k, v in text_inputs.items()}
-        # get_text_features returns BaseModelOutputWithPooling; we need the pooler_output tensor
+        
         text_features_out = model.get_text_features(**text_inputs)
         text_features = text_features_out.pooler_output
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
@@ -160,11 +131,13 @@ def main(args: argparse.Namespace):
     y_true = []
     y_pred = []
 
-    batch_size = config.get("batch_size", 16)
-    max_duration = config.get("max_duration", 10)
+    batch_size = int(args.batch_size if args.batch_size else config.get("batch_size", 16))
+    max_duration = int(
+        args.max_duration if args.max_duration else config.get("max_duration", 10)
+    )
 
-    # Inference Loop
-    print("Starting zero-shot inference...")
+    # 4. Zero-Shot Inference Loop
+    print("Starting zero-shot evaluation...")
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
@@ -185,17 +158,15 @@ def main(args: argparse.Namespace):
             for npy_path, label in batch_records:
                 audio_array = np.load(npy_path)
 
-                # Optional: truncate audio to max_duration to avoid OOM or processor limits
+                # Truncate to first max_duration (48kHz) to maintain original 0.56 accuracy
                 max_samples = max_duration * 48000
                 if len(audio_array) > max_samples:
-                    # Take middle segment
-                    start = (len(audio_array) - max_samples) // 2
-                    audio_array = audio_array[start : start + max_samples]
+                    audio_array = audio_array[:max_samples]
 
                 batch_audios.append(audio_array)
                 batch_labels.append(label)
 
-            # Process audio (using 'audio' instead of deprecated 'audios')
+            # Process audio separately
             audio_inputs = processor(
                 audio=batch_audios,
                 return_tensors="pt",
@@ -211,9 +182,12 @@ def main(args: argparse.Namespace):
                     dim=-1, keepdim=True
                 )
 
-                # Cosine similarity between audio and text
-                # We use logit_scale_a as the multiplier for audio-to-text similarity
-                logit_scale = model.logit_scale_a.exp()
+                # Compute similarity using logit scale
+                logit_scale = (
+                    model.logit_scale_a.exp()
+                    if hasattr(model, "logit_scale_a")
+                    else 100.0
+                )
                 logits_per_audio = logit_scale * audio_features @ text_features.t()
 
                 preds = logits_per_audio.argmax(dim=-1).cpu().numpy()
@@ -223,44 +197,29 @@ def main(args: argparse.Namespace):
 
             progress.advance(task)
 
-    # Evaluate
+    # 5. Report Results
     acc = accuracy_score(y_true, y_pred)
     print("\n" + "=" * 50)
     print(f"Zero-Shot Accuracy: {acc:.4f}")
     print("=" * 50)
 
     print("\nClassification Report:")
-    print(classification_report(y_true, y_pred, target_names=genres))
+    print(classification_report(y_true, y_pred, target_names=genres, zero_division=0))
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Evaluation pipeline for pretrained audio-text models (MERT, CLAP)."
-    )
+    parser = argparse.ArgumentParser(description="Zero-shot Genre Classification with CLAP")
     parser.add_argument(
-        "--exp",
-        type=str,
-        required=True,
-        help="Experiment config name (e.g., template_0).",
+        "--exp", type=str, required=True, help="Config name (e.g., template_0)"
     )
     parser.add_argument(
         "--model",
         type=str,
         choices=list(MODEL_MAPPING.keys()),
-        help="Pretrained model to use (mert, larger, lukewys, microsoft). Default is 'mert'.",
+        help="Model override (unfused, larger, lukewys, microsoft)",
     )
-    parser.add_argument(
-        "--template",
-        type=str,
-        help="Override the prompt template string for zero-shot similarity.",
-    )
-    parser.add_argument(
-        "--batch-size", type=int, help="Override batch size for inference."
-    )
-    parser.add_argument(
-        "--max-duration",
-        type=int,
-        help="Override max duration in seconds to feed to CLAP.",
-    )
+    parser.add_argument("--template", type=str, help="Prompt template override")
+    parser.add_argument("--batch-size", type=int, help="Batch size override")
+    parser.add_argument("--max-duration", type=int, help="Audio duration override (seconds)")
     args = parser.parse_args()
     main(args)
