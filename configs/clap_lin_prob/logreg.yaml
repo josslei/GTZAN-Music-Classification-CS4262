@@ -1,0 +1,22 @@
+# CLAP Linear Probing - Logistic Regression
+experiment_name: "clap_lin_prob_logreg"
+
+# Model Configuration
+model: "mert"
+batch_size: 16 # For embedding extraction
+max_duration: 10
+
+# Dimensionality Reduction
+pca:
+  enabled: true
+  n_components: 256
+
+# Classification Algorithm
+classifier:
+  type: "logreg"
+
+  logreg:
+    C: 1.0
+    penalty: "l1" # Options: "l1", "l2", "elasticnet", null
+    solver: "liblinear" # Options: "lbfgs", "liblinear", "newton-cg", "newton-cholesky", "sag", "saga"
+    max_iter: 1000

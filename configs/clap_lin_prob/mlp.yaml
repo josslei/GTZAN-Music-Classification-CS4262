@@ -1,0 +1,27 @@
+# CLAP Linear Probing - MLP
+experiment_name: "clap_lin_prob_mlp"
+
+# Model Configuration
+model: "mert"
+batch_size: 16 # For embedding extraction
+max_duration: 10
+
+# Dimensionality Reduction
+pca:
+  enabled: false
+  n_components: 256
+
+# Classification Algorithm
+classifier:
+  type: "mlp"
+
+  mlp:
+    hidden_layers: [512, 256]
+    dropout: 0.6
+    l2: 0.01
+    epochs: 100
+    lr: 0.001
+    batch_size: 16
+    optimizer: "nag"
+    momentum: 0.98
+    scheduler: "cosineannealing"

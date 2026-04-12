@@ -1,0 +1,19 @@
+# CLAP Linear Probing - KNN
+experiment_name: "clap_lin_prob_knn"
+
+# Model Configuration
+model: "mert"
+batch_size: 16 # For embedding extraction
+max_duration: 10
+
+# Dimensionality Reduction
+pca:
+  enabled: true
+  n_components: 256
+
+# Classification Algorithm
+classifier:
+  type: "knn"
+
+  knn:
+    k: 3

@@ -1,0 +1,25 @@
+# CLAP Linear Probing - Random Forest
+experiment_name: "clap_lin_prob_rf"
+
+# Model Configuration
+model: "mert"
+batch_size: 16 # For embedding extraction
+max_duration: 10
+
+# Dimensionality Reduction
+pca:
+  enabled: false
+  n_components: 256
+
+# Classification Algorithm
+classifier:
+  type: "rf"
+
+  rf:
+    n_estimators: 600
+    criterion: "gini" # Options: "gini", "entropy", "log_loss"
+    max_depth: null # null or int
+    min_samples_split: 2
+    min_samples_leaf: 1
+    max_features: "sqrt" # Options: "sqrt", "log2", null, or int/float
+    bootstrap: false

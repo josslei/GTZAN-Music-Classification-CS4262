@@ -1,0 +1,19 @@
+# CLAP Linear Probing - SVM
+experiment_name: "clap_lin_prob_svm"
+
+# Model Configuration
+model: "mert"
+batch_size: 16 # For embedding extraction
+max_duration: 10
+
+# Dimensionality Reduction
+pca:
+  enabled: false
+  n_components: 256
+
+# Classification Algorithm
+classifier:
+  type: "svm"
+
+  svm:
+    C: 1.0

@@ -41,5 +41,27 @@ You can evaluate the zero-shot classification performance of the pretrained LAIO
    - `--batch-size`: Override the number of samples to process at once.
    - `--max-duration`: Override the maximum audio duration (in seconds) to feed into the model to avoid Out-Of-Memory errors.
 
+## Linear Probing (CLAP/MERT)
+
+You can train a shallow classifier (SVM, KNN, Random Forest, Logistic Regression, Naive Bayes, or MLP) on top of the frozen embeddings extracted by pretrained audio models. This is significantly faster than fine-tuning the entire model.
+
+1. **Extract Embeddings (Run Once per Model):**
+   ```bash
+   python scripts/clap_lin_prob.py --prepare --model mert
+   ```
+   This standalone command will pass all audio through the chosen model and save the resulting feature vectors to `dataset/clap_embeddings/mert/`.
+
+2. **Run K-Fold Cross-Validation:**
+   ```bash
+   python scripts/clap_lin_prob.py --exp mlp
+   ```
+   This will instantly load the pre-extracted embeddings, apply Z-score normalization (and optionally PCA), and train the MLP classifier defined in `configs/clap_lin_prob/mlp.yaml` using 5-fold cross-validation. You can also swap `--exp mlp` for `--exp svm`, `--exp knn`, `--exp rf`, `--exp logreg`, or `--exp nb`.
+
+3. **Evaluate on the Held-Out Test Set:**
+   ```bash
+   python scripts/clap_lin_prob.py --exp mlp --test
+   ```
+   This will run cross-validation and subsequently evaluate the final trained model on Fold 0 (the fixed test set).
+
 ## Authors
 - Josslei
