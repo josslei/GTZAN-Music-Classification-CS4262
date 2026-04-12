@@ -16,6 +16,7 @@ import torch.nn as nn
 import numpy as np
 import librosa
 from pathlib import Path
+from typing import Any, Dict, List
 from rich.progress import (
     Progress,
     TextColumn,
@@ -29,8 +30,8 @@ from sklearn.svm import SVC
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.naive_bayes import GaussianNB
 from sklearn.multiclass import OneVsRestClassifier
+from sklearn.naive_bayes import GaussianNB
 from sklearn.metrics import accuracy_score, classification_report
 from transformers import AutoModel, AutoProcessor
 
@@ -109,7 +110,11 @@ def train_mlp(X_train, y_train, X_val, y_val, config):
 
     if opt_type == "nag":
         optimizer = torch.optim.SGD(
-            model.parameters(), lr=lr, weight_decay=l2, momentum=momentum, nesterov=True
+            model.parameters(),
+            lr=lr,
+            weight_decay=l2,
+            momentum=momentum,
+            nesterov=True,
         )
     elif opt_type == "sgd":
         optimizer = torch.optim.SGD(
@@ -135,7 +140,7 @@ def train_mlp(X_train, y_train, X_val, y_val, config):
     )
 
     last_train_loss = 0.0
-    for epoch in range(epochs):
+    for _ in range(epochs):
         model.train()
         epoch_loss = 0.0
         for batch_X, batch_y in dataloader:
@@ -161,7 +166,7 @@ def train_mlp(X_train, y_train, X_val, y_val, config):
 
     final_lr = optimizer.param_groups[0]["lr"]
     print(
-        f"  [MLP Stats] Train Loss: {last_train_loss:.4f} | Val Loss: {val_loss:.4f} | Final LR: {final_lr:.9f}"
+        f"[MLP Stats] Train Loss: {last_train_loss:.4f} | Val Loss: {val_loss:.4f} | Final LR: {final_lr:.6f}"
     )
 
     return preds
@@ -173,8 +178,8 @@ def prepare_embeddings(config, args):
     model_id = str(MODEL_MAPPING.get(model_key, model_key))
     print(f"Preparing embeddings using model: {model_key} ({model_id})")
 
-    processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-    model = AutoModel.from_pretrained(model_id, trust_remote_code=True).to(device)
+    processor: Any = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
+    model: Any = AutoModel.from_pretrained(model_id, trust_remote_code=True).to(device)
     model.eval()
 
     mel_dir = Path("dataset/mel_clap")
@@ -300,7 +305,7 @@ def run_classification(config, args):
         for row in reader:
             records.append(row)
 
-    X_all, Y_all, folds_all = [], [], []
+    X_all_list, Y_all_list, folds_all_list = [], [], []
     genres = sorted(list(set(row["genre"] for row in records)))
 
     print(f"Loading embeddings from {embed_dir}...")
@@ -315,37 +320,48 @@ def run_classification(config, args):
     ) as progress:
         task = progress.add_task("[cyan]Loading Data...", total=len(records))
         for row in records:
-            X_all.append(np.load(embed_dir / row["filename"]))
-            Y_all.append(int(row["label"]))
-            folds_all.append(int(row["fold"]))
+            X_all_list.append(np.load(embed_dir / row["filename"]))
+            Y_all_list.append(int(row["label"]))
+            folds_all_list.append(int(row["fold"]))
             progress.advance(task)
 
-    X_all = np.array(X_all)
-    Y_all = np.array(Y_all)
-    folds_all = np.array(folds_all)
+    X_all = np.array(X_all_list)
+    Y_all = np.array(Y_all_list)
+    folds_all = np.array(folds_all_list)
 
     cv_acc = []
 
-    print("\n" + "=" * 50)
-    print(" K-FOLD CROSS VALIDATION (Folds 1-5)")
-    print("=" * 50)
-    for fold in range(1, 6):
-        train_idx = (folds_all != 0) & (folds_all != fold)
-        val_idx = folds_all == fold
+    # Combined loop for CV and final Test evaluation
+    folds_to_run = list(range(1, 6))
+    if args.test:
+        folds_to_run.append(0)
 
-        X_train, y_train = X_all[train_idx], Y_all[train_idx]
-        X_val, y_val = X_all[val_idx], Y_all[val_idx]
+    for fold in folds_to_run:
+        print(f"\n" + "-" * 30)
+        if fold == 0:
+            print(" FINAL TEST EVALUATION (Fold 0)")
+            train_idx = folds_all != 0
+            test_idx = folds_all == 0
+            X_train, y_train = X_all[train_idx], Y_all[train_idx]
+            X_eval, y_eval = X_all[test_idx], Y_all[test_idx]
+        else:
+            print(f" PROCESSING FOLD {fold}")
+            train_idx = (folds_all != 0) & (folds_all != fold)
+            val_idx = folds_all == fold
+            X_train, y_train = X_all[train_idx], Y_all[train_idx]
+            X_eval, y_eval = X_all[val_idx], Y_all[val_idx]
+        print("-" * 30)
 
         # Z-Score Normalization
         scaler = StandardScaler()
         X_train = scaler.fit_transform(X_train)
-        X_val = scaler.transform(X_val)
+        X_eval = scaler.transform(X_eval)
 
         # PCA Dimensionality Reduction
         if config.get("pca", {}).get("enabled", False):
             pca = PCA(n_components=config["pca"].get("n_components", 256))
             X_train = pca.fit_transform(X_train)
-            X_val = pca.transform(X_val)
+            X_eval = pca.transform(X_eval)
 
         clf_type = config.get("classifier", {}).get("type", "svm").lower()
 
@@ -353,14 +369,14 @@ def run_classification(config, args):
             C_param = config.get("classifier", {}).get("svm", {}).get("C", 1.0)
             clf = SVC(kernel="linear", C=C_param)
             clf.fit(X_train, y_train)
-            preds = clf.predict(X_val)
-            print(f"  [SVM Stats] C: {C_param} | Support Vectors: {len(clf.support_)}")
+            preds = clf.predict(X_eval)
+            print(f"[SVM Stats] C: {C_param} | Support Vectors: {len(clf.support_)}")
         elif clf_type == "knn":
             k_param = config.get("classifier", {}).get("knn", {}).get("k", 5)
             clf = KNeighborsClassifier(n_neighbors=k_param, metric="cosine")
             clf.fit(X_train, y_train)
-            preds = clf.predict(X_val)
-            print(f"  [KNN Stats] k: {k_param} | Metric: cosine")
+            preds = clf.predict(X_eval)
+            print(f"[KNN Stats] k: {k_param} | Metric: cosine")
         elif clf_type == "rf":
             rf_config = config.get("classifier", {}).get("rf", {})
             clf = RandomForestClassifier(
@@ -375,13 +391,14 @@ def run_classification(config, args):
                 random_state=42,
             )
             clf.fit(X_train, y_train)
-            preds = clf.predict(X_val)
+            preds = clf.predict(X_eval)
+            clf_any: Any = clf
             print(
-                f"  [RF Stats] Estimators: {clf.n_estimators} | Max Depth: {clf.max_depth}"
+                f"[RF Stats] Estimators: {clf_any.n_estimators} | Max Depth: {clf_any.max_depth}"
             )
         elif clf_type == "logreg":
             lr_config = config.get("classifier", {}).get("logreg", {})
-            lr_kwargs = {
+            lr_kwargs: Dict[str, Any] = {
                 "C": lr_config.get("C", 1.0),
                 "solver": lr_config.get("solver", "lbfgs"),
                 "max_iter": lr_config.get("max_iter", 1000),
@@ -395,9 +412,6 @@ def run_classification(config, args):
             elif penalty == "l2":
                 lr_kwargs["l1_ratio"] = 0.0
 
-            # Note: The 'penalty' argument itself is being deprecated in 1.8
-            # in favor of l1_ratio/C or using penalty=None with l1_ratio.
-
             clf_base = LogisticRegression(**lr_kwargs)
 
             # Wrap in OneVsRest if using liblinear for multiclass
@@ -407,132 +421,38 @@ def run_classification(config, args):
                 clf = clf_base
 
             clf.fit(X_train, y_train)
-            preds = clf.predict(X_test if "X_test" in locals() else X_val)
+            preds = clf.predict(X_eval)
 
             # Diagnostic prints (handle wrapped vs raw model)
-            actual_model = clf.estimators_[0] if hasattr(clf, "estimators_") else clf
+            clf_any: Any = clf
+            actual_model: Any = (
+                clf_any.estimators_[0] if hasattr(clf_any, "estimators_") else clf_any
+            )
             print(
-                f"  [LogReg Stats] C: {actual_model.C} | Solver: {lr_kwargs['solver']} | Iterations: {actual_model.n_iter_[0]}"
+                f"[LogReg Stats] C: {actual_model.C} | Solver: {lr_kwargs['solver']} | Iterations: {actual_model.n_iter_[0]}"
             )
         elif clf_type == "nb":
             nb_config = config.get("classifier", {}).get("nb", {})
             clf = GaussianNB(var_smoothing=float(nb_config.get("var_smoothing", 1e-9)))
             clf.fit(X_train, y_train)
-            preds = clf.predict(X_test if "X_test" in locals() else X_val)
-            print(f"  [NB Stats] var_smoothing: {clf.var_smoothing}")
+            preds = clf.predict(X_eval)
+            clf_any: Any = clf
+            print(f"[NB Stats] var_smoothing: {clf_any.var_smoothing}")
         elif clf_type == "mlp":
-            preds = train_mlp(X_train, y_train, X_val, y_val, config)
+            preds = train_mlp(X_train, y_train, X_eval, y_eval, config)
         else:
             raise ValueError(f"Unknown classifier type: {clf_type}")
 
-        acc = accuracy_score(y_val, preds)
-        cv_acc.append(acc)
-        print(f"Fold {fold} Val Accuracy: {acc:.4f}")
+        acc = accuracy_score(y_eval, preds)
+        if fold == 0:
+            print(f"\nTest Accuracy: {acc:.4f}")
+            print("Classification Report:")
+            print(classification_report(y_eval, preds, target_names=genres))
+        else:
+            cv_acc.append(acc)
+            print(f"Fold {fold} Val Accuracy: {acc:.4f}")
 
     print(f"\nAverage CV Accuracy: {np.mean(cv_acc):.4f}")
-
-    if args.test:
-        print("\n" + "=" * 50)
-        print(" TEST SET EVALUATION (Fold 0)")
-        print("=" * 50)
-
-        train_idx = folds_all != 0
-        test_idx = folds_all == 0
-
-        X_train, y_train = X_all[train_idx], Y_all[train_idx]
-        X_test, y_test = X_all[test_idx], Y_all[test_idx]
-
-        scaler = StandardScaler()
-        X_train = scaler.fit_transform(X_train)
-        X_test = scaler.transform(X_test)
-
-        if config.get("pca", {}).get("enabled", False):
-            pca = PCA(n_components=config["pca"].get("n_components", 256))
-            X_train = pca.fit_transform(X_train)
-            X_test = pca.transform(X_test)
-
-        clf_type = config.get("classifier", {}).get("type", "svm").lower()
-
-        if clf_type == "svm":
-            C_param = config.get("classifier", {}).get("svm", {}).get("C", 1.0)
-            clf = SVC(kernel="linear", C=C_param)
-            clf.fit(X_train, y_train)
-            preds = clf.predict(X_test)
-            print(f"  [SVM Stats] C: {C_param} | Support Vectors: {len(clf.support_)}")
-        elif clf_type == "knn":
-            k_param = config.get("classifier", {}).get("knn", {}).get("k", 5)
-            clf = KNeighborsClassifier(n_neighbors=k_param, metric="cosine")
-            clf.fit(X_train, y_train)
-            preds = clf.predict(X_test)
-            print(f"  [KNN Stats] k: {k_param} | Metric: cosine")
-        elif clf_type == "rf":
-            rf_config = config.get("classifier", {}).get("rf", {})
-            clf = RandomForestClassifier(
-                n_estimators=rf_config.get("n_estimators", 100),
-                criterion=rf_config.get("criterion", "gini"),
-                max_depth=rf_config.get("max_depth", None),
-                min_samples_split=rf_config.get("min_samples_split", 2),
-                min_samples_leaf=rf_config.get("min_samples_leaf", 1),
-                max_features=rf_config.get("max_features", "sqrt"),
-                bootstrap=rf_config.get("bootstrap", True),
-                n_jobs=-1,
-                random_state=42,
-            )
-            clf.fit(X_train, y_train)
-            preds = clf.predict(X_test)
-            print(
-                f"  [RF Stats] Estimators: {clf.n_estimators} | Max Depth: {clf.max_depth}"
-            )
-        elif clf_type == "logreg":
-            lr_config = config.get("classifier", {}).get("logreg", {})
-            lr_kwargs = {
-                "C": lr_config.get("C", 1.0),
-                "solver": lr_config.get("solver", "lbfgs"),
-                "max_iter": lr_config.get("max_iter", 1000),
-                "random_state": 42,
-            }
-            penalty = lr_config.get("penalty", "l2")
-
-            # Map penalty to l1_ratio to avoid FutureWarnings in sklearn 1.8+
-            if penalty == "l1":
-                lr_kwargs["l1_ratio"] = 1.0
-            elif penalty == "l2":
-                lr_kwargs["l1_ratio"] = 0.0
-
-            # Note: The 'penalty' argument itself is being deprecated in 1.8
-            # in favor of l1_ratio/C or using penalty=None with l1_ratio.
-
-            clf_base = LogisticRegression(**lr_kwargs)
-
-            # Wrap in OneVsRest if using liblinear for multiclass
-            if lr_kwargs["solver"] == "liblinear":
-                clf = OneVsRestClassifier(clf_base)
-            else:
-                clf = clf_base
-
-            clf.fit(X_train, y_train)
-            preds = clf.predict(X_test if "X_test" in locals() else X_val)
-
-            # Diagnostic prints (handle wrapped vs raw model)
-            actual_model = clf.estimators_[0] if hasattr(clf, "estimators_") else clf
-            print(
-                f"  [LogReg Stats] C: {actual_model.C} | Solver: {lr_kwargs['solver']} | Iterations: {actual_model.n_iter_[0]}"
-            )
-        elif clf_type == "nb":
-            nb_config = config.get("classifier", {}).get("nb", {})
-            clf = GaussianNB(var_smoothing=float(nb_config.get("var_smoothing", 1e-9)))
-            clf.fit(X_train, y_train)
-            preds = clf.predict(X_test if "X_test" in locals() else X_val)
-            print(f"  [NB Stats] var_smoothing: {clf.var_smoothing}")
-        elif clf_type == "mlp":
-            preds = train_mlp(X_train, y_train, X_test, y_test, config)
-        else:
-            raise ValueError(f"Unknown classifier type: {clf_type}")
-
-        acc = accuracy_score(y_test, preds)
-        print(f"Test Accuracy: {acc:.4f}\n")
-        print("Classification Report:")
-        print(classification_report(y_test, preds, target_names=genres))
 
 
 def main(args):
